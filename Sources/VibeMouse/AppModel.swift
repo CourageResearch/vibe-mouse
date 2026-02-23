@@ -24,6 +24,14 @@ final class AppModel: ObservableObject {
         }
     }
 
+    @Published var sideButtonPasteEnabled: Bool {
+        didSet {
+            defaults.set(sideButtonPasteEnabled, forKey: Self.sideButtonPasteEnabledKey)
+            configureSideButtonCallback()
+            applyMonitorState()
+        }
+    }
+
     @Published private(set) var accessibilityTrusted = false
     @Published private(set) var screenRecordingGranted = false
     @Published private(set) var monitorRunning = false
@@ -42,6 +50,7 @@ final class AppModel: ObservableObject {
     private static let enabledKey = "mouseChordShot.enabled"
     private static let chordWindowKey = "mouseChordShot.chordWindowMs"
     private static let pressReturnOnDictationStopKey = "mouseChordShot.dictation.pressReturnOnStop"
+    private static let sideButtonPasteEnabledKey = "mouseChordShot.paste.sideButtonEnabled"
 
     private let defaults: UserDefaults
     private let monitor: MouseChordMonitor
@@ -56,6 +65,7 @@ final class AppModel: ObservableObject {
     private var startDictationAfterStopCompletes = false
     private var dictationTargetProcessID: pid_t?
     private var pasteInProgress = false
+    private var lastPasteTriggerTime: TimeInterval = 0
 
     init(
         defaults: UserDefaults = .standard,
@@ -72,6 +82,7 @@ final class AppModel: ObservableObject {
         self.isEnabled = defaults.object(forKey: Self.enabledKey) as? Bool ?? true
         self.chordWindowMs = defaults.object(forKey: Self.chordWindowKey) as? Double ?? 60
         self.pressReturnOnDictationStop = defaults.object(forKey: Self.pressReturnOnDictationStopKey) as? Bool ?? true
+        self.sideButtonPasteEnabled = defaults.object(forKey: Self.sideButtonPasteEnabledKey) as? Bool ?? true
 
         self.monitor.chordWindowSeconds = max(0.02, self.chordWindowMs / 1_000.0)
         self.monitor.onChord = { [weak self] in
@@ -83,9 +94,7 @@ final class AppModel: ObservableObject {
         self.monitor.onMiddleButtonUp = { [weak self] in
             self?.handleMiddleButtonUp()
         }
-        self.monitor.onSideButtonDown = { [weak self] buttonNumber in
-            self?.handleSideButtonDown(buttonNumber)
-        }
+        configureSideButtonCallback()
 
         refreshPermissions()
         requestRequiredPermissionsOnFirstLaunch()
@@ -210,7 +219,9 @@ final class AppModel: ObservableObject {
         case .started:
             monitorRunning = true
             if accessibilityTrusted {
-                monitorStatusMessage = "Listening for left+right screenshot, middle-button push-to-talk, and side-button paste"
+                monitorStatusMessage = sideButtonPasteEnabled
+                    ? "Listening for left+right screenshot, middle-button push-to-talk, and side-button paste"
+                    : "Listening for left+right screenshot and middle-button push-to-talk"
             } else {
                 monitorStatusMessage = "Waiting for Accessibility permission"
             }
@@ -236,7 +247,7 @@ final class AppModel: ObservableObject {
     }
 
     private func handleSideButtonDown(_ buttonNumber: Int64) {
-        guard isEnabled else { return }
+        guard isEnabled, sideButtonPasteEnabled else { return }
         runPasteFromSideButton(buttonNumber)
     }
 
@@ -285,6 +296,13 @@ final class AppModel: ObservableObject {
     }
 
     private func runPasteFromSideButton(_ buttonNumber: Int64) {
+        let currentTime = ProcessInfo.processInfo.systemUptime
+        // Defend against hardware bounce/repeat events causing duplicate paste.
+        if currentTime - lastPasteTriggerTime < 0.18 {
+            return
+        }
+        lastPasteTriggerTime = currentTime
+
         guard !pasteInProgress else { return }
         guard ensureAccessibilityForAutomation(triggerLabel: "paste shortcut") else { return }
 
@@ -425,5 +443,15 @@ final class AppModel: ObservableObject {
         }
 
         return true
+    }
+
+    private func configureSideButtonCallback() {
+        if sideButtonPasteEnabled {
+            monitor.onSideButtonDown = { [weak self] buttonNumber in
+                self?.handleSideButtonDown(buttonNumber)
+            }
+        } else {
+            monitor.onSideButtonDown = nil
+        }
     }
 }

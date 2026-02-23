@@ -195,6 +195,12 @@ final class MouseChordMonitor {
                 return Unmanaged.passUnretained(event)
             }
 
+            // Some devices emit repeated down events while the side button is still held.
+            // Ignore duplicates until we see the corresponding up event.
+            if suppressedSideButtons.contains(buttonNumber) {
+                return nil
+            }
+
             suppressedSideButtons.insert(buttonNumber)
             dispatchSideButtonDownTrigger(buttonNumber: buttonNumber)
             return nil

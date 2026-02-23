@@ -14,7 +14,6 @@ struct SettingsView: View {
                     behaviorCard
                     permissionsCard
                     statusCard
-                    notesCard
                 }
                 .padding(22)
                 .frame(maxWidth: 760, alignment: .leading)
@@ -44,17 +43,82 @@ struct SettingsView: View {
         )
     }
 
+    private var sideButtonPasteBinding: Binding<Bool> {
+        Binding(
+            get: { model.sideButtonPasteEnabled },
+            set: { model.sideButtonPasteEnabled = $0 }
+        )
+    }
+
     private var headerCard: some View {
         HStack(alignment: .top, spacing: 14) {
             VibingMouseBadge(size: 52, cornerRadius: 14)
 
-            VStack(alignment: .leading, spacing: 6) {
+            VStack(alignment: .leading, spacing: 10) {
                 Text("Vibe Mouse")
                     .font(.system(size: 22, weight: .semibold, design: .rounded))
 
-                Text("Left+right starts screenshot capture, middle-button hold controls dictation, and side buttons paste the clipboard.")
+                Text("Three global shortcuts: capture, paste, and hold-to-talk dictation.")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
+
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("How It Works")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+
+                    ViewThatFits(in: .horizontal) {
+                        HStack(spacing: 10) {
+                            ShortcutLegendItem(
+                                systemImage: "camera.viewfinder",
+                                title: "Capture",
+                                gesture: "Left + Right",
+                                detail: "Take screenshot to clipboard",
+                                tint: .blue
+                            )
+                            ShortcutLegendItem(
+                                systemImage: "doc.on.clipboard",
+                                title: "Paste",
+                                gesture: "Side Button",
+                                detail: model.sideButtonPasteEnabled ? "Paste clipboard (Cmd+V)" : "Enable in Behavior",
+                                tint: model.sideButtonPasteEnabled ? .green : .gray,
+                                enabled: model.sideButtonPasteEnabled
+                            )
+                            ShortcutLegendItem(
+                                systemImage: "waveform.and.mic",
+                                title: "Dictate",
+                                gesture: "Hold Middle",
+                                detail: "Release to stop dictation",
+                                tint: .orange
+                            )
+                        }
+
+                        VStack(spacing: 10) {
+                            ShortcutLegendItem(
+                                systemImage: "camera.viewfinder",
+                                title: "Capture",
+                                gesture: "Left + Right",
+                                detail: "Take screenshot to clipboard",
+                                tint: .blue
+                            )
+                            ShortcutLegendItem(
+                                systemImage: "doc.on.clipboard",
+                                title: "Paste",
+                                gesture: "Side Button",
+                                detail: model.sideButtonPasteEnabled ? "Paste clipboard (Cmd+V)" : "Enable in Behavior",
+                                tint: model.sideButtonPasteEnabled ? .green : .gray,
+                                enabled: model.sideButtonPasteEnabled
+                            )
+                            ShortcutLegendItem(
+                                systemImage: "waveform.and.mic",
+                                title: "Dictate",
+                                gesture: "Hold Middle",
+                                detail: "Release to stop dictation",
+                                tint: .orange
+                            )
+                        }
+                    }
+                }
             }
 
             Spacer(minLength: 0)
@@ -73,7 +137,7 @@ struct SettingsView: View {
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Enable mouse shortcuts")
                             .font(.headline)
-                        Text("When enabled, the app listens globally for left+right screenshot, middle-button push-to-talk dictation, and side-button paste.")
+                        Text("When enabled, the app listens globally for left+right screenshot capture and middle-button push-to-talk dictation (hold to talk, release to stop).")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
@@ -85,9 +149,25 @@ struct SettingsView: View {
                 .padding(14)
                 .roundedSurface()
 
+                HStack(spacing: 12) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Enable side-button paste")
+                            .font(.headline)
+                        Text("Use side mouse buttons (Back/Forward) to send Cmd+V. When off, side buttons are passed through to apps.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Toggle("", isOn: sideButtonPasteBinding)
+                        .labelsHidden()
+                        .toggleStyle(.switch)
+                }
+                .padding(14)
+                .roundedSurface()
+
                 VStack(alignment: .leading, spacing: 10) {
                     HStack(alignment: .firstTextBaseline, spacing: 10) {
-                        Text("Chord timing window")
+                        Text("Chord timing window (screenshot)")
                             .font(.headline)
                         Spacer()
                         Text("\(Int(model.chordWindowMs)) ms")
@@ -195,7 +275,7 @@ struct SettingsView: View {
     private var statusCard: some View {
         SettingsCard(
             title: "Status",
-            subtitle: "Live monitor state and the latest screenshot or dictation action."
+            subtitle: "Live monitor state and the latest screenshot, dictation, or paste action."
         ) {
             VStack(alignment: .leading, spacing: 12) {
                 HStack(alignment: .top, spacing: 12) {
@@ -237,24 +317,49 @@ struct SettingsView: View {
         }
     }
 
-    private var notesCard: some View {
-        SettingsCard(
-            title: "Notes",
-            subtitle: "Behavior you may notice during global shortcut detection."
-        ) {
-            HStack(alignment: .top, spacing: 10) {
-                Image(systemName: "info.circle.fill")
-                    .foregroundStyle(.blue)
-                    .padding(.top, 2)
+}
 
-                Text("The app detects a near-simultaneous left+right click chord for screenshots and suppresses those trigger clicks. Holding the middle button starts dictation and releasing it stops dictation. Side mouse buttons paste from the clipboard and those side-button clicks are also suppressed so apps do not perform back/forward navigation.")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+private struct ShortcutLegendItem: View {
+    let systemImage: String
+    let title: String
+    let gesture: String
+    let detail: String
+    let tint: Color
+    var enabled = true
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            HStack(alignment: .center, spacing: 6) {
+                Image(systemName: systemImage)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(enabled ? tint : .secondary)
+                Text(title)
+                    .font(.subheadline.weight(.semibold))
+                Spacer(minLength: 0)
+                Text(gesture)
+                    .font(.system(.caption2, design: .monospaced).weight(.semibold))
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 3)
+                    .background((enabled ? tint : .secondary).opacity(0.14))
+                    .clipShape(Capsule())
             }
-            .padding(14)
-            .roundedSurface()
+
+            Text(detail)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(2)
         }
+        .padding(11)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill((enabled ? tint : .secondary).opacity(0.08))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .strokeBorder((enabled ? tint : .secondary).opacity(0.20), lineWidth: 1)
+        )
+        .opacity(enabled ? 1 : 0.78)
     }
 }
 

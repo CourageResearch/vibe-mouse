@@ -17,7 +17,9 @@ struct MenuPanelView: View {
                     VStack(alignment: .leading, spacing: 3) {
                         Text("Vibe Mouse")
                             .font(.system(size: 15, weight: .semibold, design: .rounded))
-                        Text("Left+Right screenshot, Hold middle dictation, Side button paste")
+                        Text(model.sideButtonPasteEnabled
+                            ? "Left+Right screenshot, Hold middle to dictate, Side button paste"
+                            : "Left+Right screenshot, Hold middle to dictate")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
@@ -27,7 +29,11 @@ struct MenuPanelView: View {
                     VStack(alignment: .leading, spacing: 3) {
                         Text("Enable mouse shortcuts")
                             .font(.subheadline.weight(.semibold))
-                        Text(model.isEnabled ? "Listening globally for screenshot, push-to-talk dictation, and side-button paste triggers." : "Global mouse shortcuts are disabled.")
+                        Text(model.isEnabled
+                            ? (model.sideButtonPasteEnabled
+                                ? "Listening globally for screenshot, push-to-talk dictation, and side-button paste triggers."
+                                : "Listening globally for screenshot and push-to-talk dictation triggers.")
+                            : "Global mouse shortcuts are disabled.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
