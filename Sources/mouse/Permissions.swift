@@ -30,6 +30,24 @@ enum Permissions {
         openPrivacyPane(anchor: "Privacy_ListenEvent")
     }
 
+    static func revealAppInFinder() {
+        if Bundle.main.bundleURL.pathExtension == "app" {
+            NSWorkspace.shared.activateFileViewerSelecting([Bundle.main.bundleURL])
+            return
+        }
+
+        if let executableURL = Bundle.main.executableURL {
+            var url = executableURL
+            while url.path != "/" {
+                if url.pathExtension == "app" {
+                    NSWorkspace.shared.activateFileViewerSelecting([url])
+                    return
+                }
+                url.deleteLastPathComponent()
+            }
+        }
+    }
+
     private static func openPrivacyPane(anchor: String) {
         guard let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?\(anchor)") else {
             return

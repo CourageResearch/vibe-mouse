@@ -80,22 +80,52 @@ final class AppModel: ObservableObject {
 
     func requestAllPermissions() {
         lastActionMessage = "Requesting permissions..."
+        NSApplication.shared.activate(ignoringOtherApps: true)
         _ = Permissions.accessibilityTrusted(prompt: true)
         _ = Permissions.screenRecordingGranted(prompt: true)
         refreshPermissions()
+        if !accessibilityTrusted {
+            Permissions.openAccessibilitySettings()
+            Permissions.revealAppInFinder()
+            lastActionMessage = "Add/enable Mouse Chord Shot in Accessibility (use + if not listed)."
+            applyMonitorState()
+            return
+        }
+        if !screenRecordingGranted {
+            Permissions.openScreenRecordingSettings()
+            Permissions.revealAppInFinder()
+            lastActionMessage = "Add/enable Mouse Chord Shot in Screen & System Audio Recording (use + if not listed)."
+            applyMonitorState()
+            return
+        }
         applyMonitorState()
-        lastActionMessage = "Permissions prompt sent. Re-open the app after granting if needed."
+        lastActionMessage = "Permissions prompt sent."
     }
 
     func requestAccessibilityPermission() {
+        NSApplication.shared.activate(ignoringOtherApps: true)
         _ = Permissions.accessibilityTrusted(prompt: true)
         refreshPermissions()
+        if !accessibilityTrusted {
+            Permissions.openAccessibilitySettings()
+            Permissions.revealAppInFinder()
+            lastActionMessage = "Add/enable Mouse Chord Shot in Accessibility (use + if not listed)."
+        } else {
+            lastActionMessage = "Accessibility permission granted."
+        }
         applyMonitorState()
     }
 
     func requestScreenRecordingPermission() {
+        NSApplication.shared.activate(ignoringOtherApps: true)
         _ = Permissions.screenRecordingGranted(prompt: true)
         refreshPermissions()
+        if !screenRecordingGranted {
+            Permissions.openScreenRecordingSettings()
+            lastActionMessage = "Enable Mouse Chord Shot in Screen & System Audio Recording (use + if it is not listed)."
+        } else {
+            lastActionMessage = "Screen Recording permission granted."
+        }
     }
 
     func openAccessibilitySettings() {
@@ -110,6 +140,11 @@ final class AppModel: ObservableObject {
         Permissions.openInputMonitoringSettings()
     }
 
+    func revealInstalledAppInFinder() {
+        Permissions.revealAppInFinder()
+        lastActionMessage = "Finder opened. Use + in macOS Settings and choose Mouse Chord Shot.app."
+    }
+
     func triggerManualScreenshot() {
         runScreenshot()
     }
@@ -120,7 +155,6 @@ final class AppModel: ObservableObject {
         defaults.set(true, forKey: "mouseChordShot.didRequestPermissions")
 
         _ = Permissions.accessibilityTrusted(prompt: true)
-        _ = Permissions.screenRecordingGranted(prompt: true)
         refreshPermissions()
     }
 
@@ -170,9 +204,15 @@ final class AppModel: ObservableObject {
 
         if !screenRecordingGranted {
             lastActionMessage = "Screen Recording permission is required."
+            NSApplication.shared.activate(ignoringOtherApps: true)
             _ = Permissions.screenRecordingGranted(prompt: true)
             refreshPermissions()
-            guard screenRecordingGranted else { return }
+            guard screenRecordingGranted else {
+                Permissions.openScreenRecordingSettings()
+                Permissions.revealAppInFinder()
+                lastActionMessage = "Add/enable Mouse Chord Shot in Screen & System Audio Recording (use + if not listed)."
+                return
+            }
         }
 
         screenshotCaptureInProgress = true

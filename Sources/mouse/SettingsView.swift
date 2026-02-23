@@ -161,6 +161,11 @@ struct SettingsView: View {
                     }
                     .buttonStyle(PrimaryCapsuleButtonStyle())
 
+                    Button("Reveal App in Finder") {
+                        model.revealInstalledAppInFinder()
+                    }
+                    .buttonStyle(SecondaryCapsuleButtonStyle())
+
                     Button("Refresh Status") {
                         model.refreshPermissions()
                     }
@@ -225,7 +230,7 @@ struct SettingsView: View {
                     .foregroundStyle(.blue)
                     .padding(.top, 2)
 
-                Text("The app suppresses the second click of the chord and blocks the context menu after the chord is detected. The first button press may still reach the foreground app before the chord is recognized.")
+                Text("The app detects a near-simultaneous left+right click chord, suppresses those chord clicks, then starts interactive screenshot mode so foreground apps usually do not react to the trigger.")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)

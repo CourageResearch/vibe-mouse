@@ -220,9 +220,9 @@ final class MouseChordMonitor {
     }
 
     private func dispatchChordTrigger() {
-        let now = now()
-        guard now - lastTriggerDispatchTime >= minimumTriggerIntervalSeconds else { return }
-        lastTriggerDispatchTime = now
+        let currentTime = now()
+        guard currentTime - lastTriggerDispatchTime >= minimumTriggerIntervalSeconds else { return }
+        lastTriggerDispatchTime = currentTime
 
         let callback = onChord
         let delay = max(0, postReleaseTriggerDelaySeconds)
