@@ -12,19 +12,12 @@ struct MenuPanelView: View {
 
             VStack(alignment: .leading, spacing: 12) {
                 HStack(alignment: .top, spacing: 10) {
-                    ZStack {
-                        RoundedRectangle(cornerRadius: 12, style: .continuous)
-                            .fill(Color.accentColor.opacity(0.14))
-                            .frame(width: 40, height: 40)
-                        Image(systemName: "camera.viewfinder")
-                            .font(.system(size: 18, weight: .semibold))
-                            .foregroundStyle(Color.accentColor)
-                    }
+                    VibingMouseBadge(size: 40, cornerRadius: 12)
 
                     VStack(alignment: .leading, spacing: 3) {
-                        Text("Mouse Chord Shot")
+                        Text("Vibe Mouse")
                             .font(.system(size: 15, weight: .semibold, design: .rounded))
-                        Text("Left + Right click for screenshot")
+                        Text("Left+Right screenshot, Hold middle dictation, Side button paste")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
@@ -32,9 +25,9 @@ struct MenuPanelView: View {
 
                 HStack(spacing: 10) {
                     VStack(alignment: .leading, spacing: 3) {
-                        Text("Enable mouse chord screenshot")
+                        Text("Enable mouse shortcuts")
                             .font(.subheadline.weight(.semibold))
-                        Text(model.isEnabled ? "Listening globally for the chord trigger." : "Chord listener is disabled.")
+                        Text(model.isEnabled ? "Listening globally for screenshot, push-to-talk dictation, and side-button paste triggers." : "Global mouse shortcuts are disabled.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
@@ -45,55 +38,6 @@ struct MenuPanelView: View {
                 .padding(12)
                 .panelSurface()
 
-                VStack(alignment: .leading, spacing: 8) {
-                    Label("Status", systemImage: "dot.radiowaves.left.and.right")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.secondary)
-
-                    Text(model.monitorStatusMessage)
-                        .font(.subheadline.weight(.semibold))
-
-                    if !model.accessibilityTrusted || !model.screenRecordingGranted {
-                        HStack(spacing: 6) {
-                            Image(systemName: "exclamationmark.triangle.fill")
-                                .foregroundStyle(.orange)
-                            Text("Permissions are managed in Settings.")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-
-                    Divider()
-                        .overlay(Color.primary.opacity(0.08))
-
-                    HStack(alignment: .top, spacing: 8) {
-                        Text("Last action")
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(.secondary)
-                            .frame(width: 66, alignment: .leading)
-
-                        Text(model.lastActionMessage)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                }
-                .padding(12)
-                .panelSurface()
-
-                HStack(spacing: 8) {
-                    Button("Test Screenshot") {
-                        model.triggerManualScreenshot()
-                    }
-                    .buttonStyle(PanelPrimaryButtonStyle())
-
-                    Button("Settings…") {
-                        NSApplication.shared.activate(ignoringOtherApps: true)
-                        openWindow(id: "settings")
-                    }
-                    .buttonStyle(PanelSecondaryButtonStyle())
-                }
-
                 HStack(spacing: 8) {
                     if !model.accessibilityTrusted || !model.screenRecordingGranted {
                         Button("Settings → Permissions") {
@@ -102,6 +46,14 @@ struct MenuPanelView: View {
                         }
                         .buttonStyle(PanelSecondaryButtonStyle())
                     }
+                }
+
+                HStack(spacing: 8) {
+                    Button("Settings…") {
+                        NSApplication.shared.activate(ignoringOtherApps: true)
+                        openWindow(id: "settings")
+                    }
+                    .buttonStyle(PanelSecondaryButtonStyle())
 
                     Spacer(minLength: 0)
 

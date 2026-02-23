@@ -9,6 +9,9 @@ final class MouseChordMonitor {
 
     var chordWindowSeconds: TimeInterval = 0.06
     var onChord: (@MainActor @Sendable () -> Void)?
+    var onMiddleButtonDown: (@MainActor @Sendable () -> Void)?
+    var onMiddleButtonUp: (@MainActor @Sendable () -> Void)?
+    var onSideButtonDown: (@MainActor @Sendable (_ buttonNumber: Int64) -> Void)?
     var postReleaseTriggerDelaySeconds: TimeInterval = 0
     var minimumTriggerIntervalSeconds: TimeInterval = 0.20
     var releasePollIntervalSeconds: TimeInterval = 0.005
@@ -25,9 +28,14 @@ final class MouseChordMonitor {
     private var chordPendingActionAfterRelease = false
     private var leftDownTime: TimeInterval?
     private var rightDownTime: TimeInterval?
-    private var lastTriggerDispatchTime: TimeInterval = 0
+    private var suppressMiddleButtonUntilUp = false
+    private var suppressedSideButtons: Set<Int64> = []
+    private var lastChordTriggerDispatchTime: TimeInterval = 0
     private var releasePollTimer: DispatchSourceTimer?
     private var releasePollStartedAt: TimeInterval?
+
+    private let middleMouseButtonNumber: Int64 = 2
+    private let supportedSideMouseButtons: Set<Int64> = [3, 4]
 
     func start() -> StartResult {
         if eventTap != nil {
@@ -40,6 +48,9 @@ final class MouseChordMonitor {
             | maskFor(.rightMouseUp)
             | maskFor(.leftMouseDragged)
             | maskFor(.rightMouseDragged)
+            | maskFor(.otherMouseDown)
+            | maskFor(.otherMouseUp)
+            | maskFor(.otherMouseDragged)
 
         guard let tap = CGEvent.tapCreate(
             tap: .cgSessionEventTap,
@@ -135,6 +146,15 @@ final class MouseChordMonitor {
         case .leftMouseDragged, .rightMouseDragged:
             return suppressUntilButtonsUp ? nil : Unmanaged.passUnretained(event)
 
+        case .otherMouseDown:
+            return handleOtherMouseDown(event)
+
+        case .otherMouseUp:
+            return handleOtherMouseUp(event)
+
+        case .otherMouseDragged:
+            return handleOtherMouseDragged(event)
+
         default:
             return Unmanaged.passUnretained(event)
         }
@@ -155,6 +175,65 @@ final class MouseChordMonitor {
         startReleasePolling()
         dispatchChordTrigger()
         return true
+    }
+
+    private func handleOtherMouseDown(_ event: CGEvent) -> Unmanaged<CGEvent>? {
+        let buttonNumber = event.getIntegerValueField(.mouseEventButtonNumber)
+
+        if buttonNumber == middleMouseButtonNumber {
+            guard onMiddleButtonDown != nil || onMiddleButtonUp != nil else {
+                return Unmanaged.passUnretained(event)
+            }
+
+            suppressMiddleButtonUntilUp = true
+            dispatchMiddleButtonDownTrigger()
+            return nil
+        }
+
+        if supportedSideMouseButtons.contains(buttonNumber) {
+            guard onSideButtonDown != nil else {
+                return Unmanaged.passUnretained(event)
+            }
+
+            suppressedSideButtons.insert(buttonNumber)
+            dispatchSideButtonDownTrigger(buttonNumber: buttonNumber)
+            return nil
+        }
+
+        return Unmanaged.passUnretained(event)
+    }
+
+    private func handleOtherMouseUp(_ event: CGEvent) -> Unmanaged<CGEvent>? {
+        let buttonNumber = event.getIntegerValueField(.mouseEventButtonNumber)
+
+        if buttonNumber == middleMouseButtonNumber {
+            let shouldSuppress = suppressMiddleButtonUntilUp
+            suppressMiddleButtonUntilUp = false
+            if shouldSuppress {
+                dispatchMiddleButtonUpTrigger()
+            }
+            return shouldSuppress ? nil : Unmanaged.passUnretained(event)
+        }
+
+        if suppressedSideButtons.contains(buttonNumber) {
+            suppressedSideButtons.remove(buttonNumber)
+            return nil
+        }
+
+        return Unmanaged.passUnretained(event)
+    }
+
+    private func handleOtherMouseDragged(_ event: CGEvent) -> Unmanaged<CGEvent>? {
+        let buttonNumber = event.getIntegerValueField(.mouseEventButtonNumber)
+        if buttonNumber == middleMouseButtonNumber {
+            return suppressMiddleButtonUntilUp ? nil : Unmanaged.passUnretained(event)
+        }
+
+        if suppressedSideButtons.contains(buttonNumber) {
+            return nil
+        }
+
+        return Unmanaged.passUnretained(event)
     }
 
     private func resetIfIdle() {
@@ -221,8 +300,8 @@ final class MouseChordMonitor {
 
     private func dispatchChordTrigger() {
         let currentTime = now()
-        guard currentTime - lastTriggerDispatchTime >= minimumTriggerIntervalSeconds else { return }
-        lastTriggerDispatchTime = currentTime
+        guard currentTime - lastChordTriggerDispatchTime >= minimumTriggerIntervalSeconds else { return }
+        lastChordTriggerDispatchTime = currentTime
 
         let callback = onChord
         let delay = max(0, postReleaseTriggerDelaySeconds)
@@ -237,11 +316,34 @@ final class MouseChordMonitor {
         }
     }
 
+    private func dispatchMiddleButtonDownTrigger() {
+        let callback = onMiddleButtonDown
+        Task { @MainActor in
+            callback?()
+        }
+    }
+
+    private func dispatchMiddleButtonUpTrigger() {
+        let callback = onMiddleButtonUp
+        Task { @MainActor in
+            callback?()
+        }
+    }
+
+    private func dispatchSideButtonDownTrigger(buttonNumber: Int64) {
+        let callback = onSideButtonDown
+        Task { @MainActor in
+            callback?(buttonNumber)
+        }
+    }
+
     private func resetState() {
         stopReleasePolling()
         leftDown = false
         rightDown = false
         suppressUntilButtonsUp = false
+        suppressMiddleButtonUntilUp = false
+        suppressedSideButtons.removeAll()
         chordTriggeredForCurrentPress = false
         chordPendingActionAfterRelease = false
         leftDownTime = nil

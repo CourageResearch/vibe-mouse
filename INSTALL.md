@@ -1,4 +1,4 @@
-# Mouse Chord Shot Installation (macOS)
+# Vibe Mouse Installation (macOS)
 
 ## Download
 
@@ -11,7 +11,7 @@ This build is for Apple Silicon (`arm64`) Macs.
 ## Install
 
 1. Unzip the release.
-2. Move `Mouse Chord Shot.app` into either:
+2. Move `Vibe Mouse.app` into either:
    - `/Applications`
    - `/Users/<your-user>/Applications`
 3. Launch the app.
@@ -22,7 +22,7 @@ The app is ad-hoc signed (not notarized), so macOS may block the first launch.
 
 If that happens:
 
-1. In Finder, right-click `Mouse Chord Shot.app`
+1. In Finder, right-click `Vibe Mouse.app`
 2. Click `Open`
 3. Confirm `Open`
 
@@ -38,7 +38,7 @@ Open the app's **Settings** window and use the **Permissions** section to reques
 
 After granting permissions:
 
-1. Quit `Mouse Chord Shot`
+1. Quit `Vibe Mouse`
 2. Reopen it
 3. Click `Refresh Status`
 
@@ -58,7 +58,7 @@ Use the `+` button in the macOS Settings permission page, then:
 2. Enter the folder where you installed the app:
    - `/Applications`
    - or `/Users/<your-user>/Applications`
-3. Select `Mouse Chord Shot.app`
+3. Select `Vibe Mouse.app`
 
 ## Troubleshooting
 

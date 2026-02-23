@@ -9,12 +9,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
 @MainActor
 @main
-struct MouseChordShotApp: App {
+struct VibeMouseApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @StateObject private var model = AppModel()
 
     var body: some Scene {
-        MenuBarExtra("Mouse Chord Shot", systemImage: model.menuBarSymbolName) {
+        MenuBarExtra("Vibe Mouse", systemImage: model.menuBarSymbolName) {
             MenuPanelView(model: model)
         }
         .menuBarExtraStyle(.window)

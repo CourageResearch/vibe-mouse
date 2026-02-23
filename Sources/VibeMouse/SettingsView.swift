@@ -37,22 +37,22 @@ struct SettingsView: View {
         )
     }
 
+    private var pressReturnOnDictationStopBinding: Binding<Bool> {
+        Binding(
+            get: { model.pressReturnOnDictationStop },
+            set: { model.pressReturnOnDictationStop = $0 }
+        )
+    }
+
     private var headerCard: some View {
         HStack(alignment: .top, spacing: 14) {
-            ZStack {
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .fill(Color.accentColor.opacity(0.14))
-                    .frame(width: 52, height: 52)
-                Image(systemName: "camera.viewfinder")
-                    .font(.system(size: 22, weight: .semibold))
-                    .foregroundStyle(Color.accentColor)
-            }
+            VibingMouseBadge(size: 52, cornerRadius: 14)
 
             VStack(alignment: .leading, spacing: 6) {
-                Text("Mouse Chord Shot")
+                Text("Vibe Mouse")
                     .font(.system(size: 22, weight: .semibold, design: .rounded))
 
-                Text("Capture a screenshot when left and right click are pressed together.")
+                Text("Left+right starts screenshot capture, middle-button hold controls dictation, and side buttons paste the clipboard.")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             }
@@ -66,14 +66,14 @@ struct SettingsView: View {
     private var behaviorCard: some View {
         SettingsCard(
             title: "Behavior",
-            subtitle: "Tune the mouse chord trigger and enable or disable the global listener."
+            subtitle: "Tune the screenshot chord trigger and enable or disable the global mouse shortcuts."
         ) {
             VStack(alignment: .leading, spacing: 14) {
                 HStack(spacing: 12) {
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("Enable mouse chord screenshot")
+                        Text("Enable mouse shortcuts")
                             .font(.headline)
-                        Text("When enabled, the app listens globally for a left+right click chord.")
+                        Text("When enabled, the app listens globally for left+right screenshot, middle-button push-to-talk dictation, and side-button paste.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
@@ -112,6 +112,22 @@ struct SettingsView: View {
                     }
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                }
+                .padding(14)
+                .roundedSurface()
+
+                HStack(spacing: 12) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Press Return when releasing dictation")
+                            .font(.headline)
+                        Text("When you release the middle button, stop dictation and optionally send Return to the same app.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Toggle("", isOn: pressReturnOnDictationStopBinding)
+                        .labelsHidden()
+                        .toggleStyle(.switch)
                 }
                 .padding(14)
                 .roundedSurface()
@@ -179,7 +195,7 @@ struct SettingsView: View {
     private var statusCard: some View {
         SettingsCard(
             title: "Status",
-            subtitle: "Live monitor state and the latest screenshot action."
+            subtitle: "Live monitor state and the latest screenshot or dictation action."
         ) {
             VStack(alignment: .leading, spacing: 12) {
                 HStack(alignment: .top, spacing: 12) {
@@ -207,6 +223,7 @@ struct SettingsView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     Text(model.lastActionMessage)
+                        .textSelection(.enabled)
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 .padding(14)
@@ -223,14 +240,14 @@ struct SettingsView: View {
     private var notesCard: some View {
         SettingsCard(
             title: "Notes",
-            subtitle: "Behavior you may notice during chord detection."
+            subtitle: "Behavior you may notice during global shortcut detection."
         ) {
             HStack(alignment: .top, spacing: 10) {
                 Image(systemName: "info.circle.fill")
                     .foregroundStyle(.blue)
                     .padding(.top, 2)
 
-                Text("The app detects a near-simultaneous left+right click chord, suppresses those chord clicks, then starts interactive screenshot mode so foreground apps usually do not react to the trigger.")
+                Text("The app detects a near-simultaneous left+right click chord for screenshots and suppresses those trigger clicks. Holding the middle button starts dictation and releasing it stops dictation. Side mouse buttons paste from the clipboard and those side-button clicks are also suppressed so apps do not perform back/forward navigation.")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)

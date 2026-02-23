@@ -4,16 +4,16 @@
 import PackageDescription
 
 let package = Package(
-    name: "mouse",
+    name: "vibe-mouse",
     platforms: [
         .macOS(.v13),
     ],
     products: [
-        .executable(name: "mouse", targets: ["mouse"]),
+        .executable(name: "vibe-mouse", targets: ["VibeMouse"]),
     ],
     targets: [
         .executableTarget(
-            name: "mouse"
+            name: "VibeMouse"
         ),
     ]
 )
