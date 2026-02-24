@@ -1,5 +1,7 @@
 import Foundation
 import CoreGraphics
+import Carbon.HIToolbox
+import AppKit
 
 final class MouseChordMonitor {
     enum StartResult {
@@ -9,9 +11,11 @@ final class MouseChordMonitor {
 
     var chordWindowSeconds: TimeInterval = 0.06
     var onChord: (@MainActor @Sendable () -> Void)?
-    var onMiddleButtonDown: (@MainActor @Sendable () -> Void)?
-    var onMiddleButtonUp: (@MainActor @Sendable () -> Void)?
+    var onF4KeyDown: (@MainActor @Sendable () -> Void)?
     var onSideButtonDown: (@MainActor @Sendable (_ buttonNumber: Int64) -> Void)?
+    var onSideButtonUp: (@MainActor @Sendable (_ buttonNumber: Int64, _ location: CGPoint) -> Void)?
+    var onSideButtonDragged: (@MainActor @Sendable (_ buttonNumber: Int64, _ location: CGPoint) -> Void)?
+    var interceptedSideMouseButtons: Set<Int64> = []
     var postReleaseTriggerDelaySeconds: TimeInterval = 0
     var minimumTriggerIntervalSeconds: TimeInterval = 0.20
     var releasePollIntervalSeconds: TimeInterval = 0.005
@@ -20,6 +24,8 @@ final class MouseChordMonitor {
     private var eventTap: CFMachPort?
     private var runLoopSource: CFRunLoopSource?
     private var attachedRunLoop: CFRunLoop?
+    private var fallbackGlobalKeyMonitor: Any?
+    private var fallbackLocalKeyMonitor: Any?
 
     private var leftDown = false
     private var rightDown = false
@@ -28,14 +34,21 @@ final class MouseChordMonitor {
     private var chordPendingActionAfterRelease = false
     private var leftDownTime: TimeInterval?
     private var rightDownTime: TimeInterval?
-    private var suppressMiddleButtonUntilUp = false
+    private var suppressF4KeyUp = false
     private var suppressedSideButtons: Set<Int64> = []
     private var lastChordTriggerDispatchTime: TimeInterval = 0
+    private var lastF4TriggerDispatchTime: TimeInterval = 0
     private var releasePollTimer: DispatchSourceTimer?
     private var releasePollStartedAt: TimeInterval?
 
-    private let middleMouseButtonNumber: Int64 = 2
     private let supportedSideMouseButtons: Set<Int64> = [3, 4]
+    private let nxSystemDefinedEventTypeRawValue: UInt32 = 14 // NX_SYSDEFINED
+    private let nxSubtypeAuxControlButtons: Int16 = 8 // NX_SUBTYPE_AUX_CONTROL_BUTTONS
+    private let nxSubtypeMenu: Int16 = 16 // NX_SUBTYPE_MENU
+    private let nxKeyStateDown: Int64 = 0xA
+    private let nxKeyStateUp: Int64 = 0xB
+    // F4/search commonly arrives as one of these media/system key types.
+    private let supportedF4SystemKeyTypes: Set<Int64> = [13, 25, 160]
 
     func start() -> StartResult {
         if eventTap != nil {
@@ -51,6 +64,9 @@ final class MouseChordMonitor {
             | maskFor(.otherMouseDown)
             | maskFor(.otherMouseUp)
             | maskFor(.otherMouseDragged)
+            | maskFor(.keyDown)
+            | maskFor(.keyUp)
+            | maskForRawType(nxSystemDefinedEventTypeRawValue)
 
         guard let tap = CGEvent.tapCreate(
             tap: .cgSessionEventTap,
@@ -74,6 +90,7 @@ final class MouseChordMonitor {
         self.eventTap = tap
         self.runLoopSource = source
         self.attachedRunLoop = runLoop
+        installFallbackKeyMonitorsIfNeeded()
         resetState()
         return .started
     }
@@ -90,11 +107,16 @@ final class MouseChordMonitor {
         eventTap = nil
         runLoopSource = nil
         attachedRunLoop = nil
+        removeFallbackKeyMonitors()
         resetState()
     }
 
     private func maskFor(_ type: CGEventType) -> CGEventMask {
         1 << type.rawValue
+    }
+
+    private func maskForRawType(_ rawType: UInt32) -> CGEventMask {
+        1 << CGEventMask(rawType)
     }
 
     private static let eventTapCallback: CGEventTapCallBack = { _, type, event, userInfo in
@@ -107,6 +129,10 @@ final class MouseChordMonitor {
     }
 
     private func handleEvent(type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
+        if type.rawValue == nxSystemDefinedEventTypeRawValue {
+            return handleSystemDefinedEvent(event)
+        }
+
         switch type {
         case .tapDisabledByTimeout, .tapDisabledByUserInput:
             resetState()
@@ -155,6 +181,12 @@ final class MouseChordMonitor {
         case .otherMouseDragged:
             return handleOtherMouseDragged(event)
 
+        case .keyDown:
+            return handleKeyDown(event)
+
+        case .keyUp:
+            return handleKeyUp(event)
+
         default:
             return Unmanaged.passUnretained(event)
         }
@@ -180,18 +212,10 @@ final class MouseChordMonitor {
     private func handleOtherMouseDown(_ event: CGEvent) -> Unmanaged<CGEvent>? {
         let buttonNumber = event.getIntegerValueField(.mouseEventButtonNumber)
 
-        if buttonNumber == middleMouseButtonNumber {
-            guard onMiddleButtonDown != nil || onMiddleButtonUp != nil else {
-                return Unmanaged.passUnretained(event)
-            }
-
-            suppressMiddleButtonUntilUp = true
-            dispatchMiddleButtonDownTrigger()
-            return nil
-        }
-
         if supportedSideMouseButtons.contains(buttonNumber) {
-            guard onSideButtonDown != nil else {
+            let hasHandler = onSideButtonDown != nil || onSideButtonUp != nil || onSideButtonDragged != nil
+            guard interceptedSideMouseButtons.contains(buttonNumber),
+                  hasHandler else {
                 return Unmanaged.passUnretained(event)
             }
 
@@ -212,17 +236,9 @@ final class MouseChordMonitor {
     private func handleOtherMouseUp(_ event: CGEvent) -> Unmanaged<CGEvent>? {
         let buttonNumber = event.getIntegerValueField(.mouseEventButtonNumber)
 
-        if buttonNumber == middleMouseButtonNumber {
-            let shouldSuppress = suppressMiddleButtonUntilUp
-            suppressMiddleButtonUntilUp = false
-            if shouldSuppress {
-                dispatchMiddleButtonUpTrigger()
-            }
-            return shouldSuppress ? nil : Unmanaged.passUnretained(event)
-        }
-
         if suppressedSideButtons.contains(buttonNumber) {
             suppressedSideButtons.remove(buttonNumber)
+            dispatchSideButtonUpTrigger(buttonNumber: buttonNumber, location: event.location)
             return nil
         }
 
@@ -231,15 +247,158 @@ final class MouseChordMonitor {
 
     private func handleOtherMouseDragged(_ event: CGEvent) -> Unmanaged<CGEvent>? {
         let buttonNumber = event.getIntegerValueField(.mouseEventButtonNumber)
-        if buttonNumber == middleMouseButtonNumber {
-            return suppressMiddleButtonUntilUp ? nil : Unmanaged.passUnretained(event)
-        }
 
         if suppressedSideButtons.contains(buttonNumber) {
+            dispatchSideButtonDraggedTrigger(buttonNumber: buttonNumber, location: event.location)
             return nil
         }
 
         return Unmanaged.passUnretained(event)
+    }
+
+    private func handleKeyDown(_ event: CGEvent) -> Unmanaged<CGEvent>? {
+        let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
+        let isAutoRepeat = event.getIntegerValueField(.keyboardEventAutorepeat) != 0
+
+        if keyCode == Int64(kVK_F4) {
+            guard onF4KeyDown != nil else {
+                return Unmanaged.passUnretained(event)
+            }
+
+            // Ignore key repeat so holding F4 doesn't repeatedly launch screenshot mode.
+            if isAutoRepeat {
+                return nil
+            }
+
+            suppressF4KeyUp = true
+            dispatchF4Trigger()
+            return nil
+        }
+
+        return Unmanaged.passUnretained(event)
+    }
+
+    private func handleKeyUp(_ event: CGEvent) -> Unmanaged<CGEvent>? {
+        let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
+
+        if keyCode == Int64(kVK_F4) {
+            let shouldSuppress = suppressF4KeyUp
+            suppressF4KeyUp = false
+            return shouldSuppress ? nil : Unmanaged.passUnretained(event)
+        }
+
+        return Unmanaged.passUnretained(event)
+    }
+
+    private func handleSystemDefinedEvent(_ event: CGEvent) -> Unmanaged<CGEvent>? {
+        guard onF4KeyDown != nil else {
+            return Unmanaged.passUnretained(event)
+        }
+
+        guard let nsEvent = NSEvent(cgEvent: event) else {
+            return Unmanaged.passUnretained(event)
+        }
+
+        let subtypeRaw = Int16(nsEvent.subtype.rawValue)
+        guard subtypeRaw == nxSubtypeAuxControlButtons || subtypeRaw == nxSubtypeMenu else {
+            return Unmanaged.passUnretained(event)
+        }
+
+        let data1 = Int64(nsEvent.data1)
+        let systemKeyType = (data1 & 0xFFFF0000) >> 16
+        let keyFlags = data1 & 0x0000FFFF
+        let keyState = (keyFlags & 0xFF00) >> 8
+        let isAutoRepeat = (keyFlags & 0x1) != 0
+        let isF4LikeSystemKey = event.getIntegerValueField(.keyboardEventKeycode) == Int64(kVK_F4)
+            || supportedF4SystemKeyTypes.contains(systemKeyType)
+
+        guard isF4LikeSystemKey else {
+            return Unmanaged.passUnretained(event)
+        }
+
+        if keyState == nxKeyStateDown {
+            if isAutoRepeat {
+                return nil
+            }
+
+            if isF4LikeSystemKey {
+                suppressF4KeyUp = true
+                dispatchF4Trigger()
+            }
+            return nil
+        }
+
+        if keyState == nxKeyStateUp {
+            if isF4LikeSystemKey {
+                let shouldSuppress = suppressF4KeyUp
+                suppressF4KeyUp = false
+                return shouldSuppress ? nil : Unmanaged.passUnretained(event)
+            }
+        }
+
+        return Unmanaged.passUnretained(event)
+    }
+
+    private func installFallbackKeyMonitorsIfNeeded() {
+        if fallbackGlobalKeyMonitor == nil {
+            fallbackGlobalKeyMonitor = NSEvent.addGlobalMonitorForEvents(
+                matching: [.systemDefined, .keyDown, .keyUp]
+            ) { [weak self] event in
+                self?.handleFallbackObservedEvent(event)
+            }
+        }
+
+        if fallbackLocalKeyMonitor == nil {
+            fallbackLocalKeyMonitor = NSEvent.addLocalMonitorForEvents(
+                matching: [.systemDefined, .keyDown, .keyUp]
+            ) { [weak self] event in
+                self?.handleFallbackObservedEvent(event)
+                return event
+            }
+        }
+    }
+
+    private func removeFallbackKeyMonitors() {
+        if let fallbackGlobalKeyMonitor {
+            NSEvent.removeMonitor(fallbackGlobalKeyMonitor)
+            self.fallbackGlobalKeyMonitor = nil
+        }
+
+        if let fallbackLocalKeyMonitor {
+            NSEvent.removeMonitor(fallbackLocalKeyMonitor)
+            self.fallbackLocalKeyMonitor = nil
+        }
+    }
+
+    private func handleFallbackObservedEvent(_ event: NSEvent) {
+        guard onF4KeyDown != nil else { return }
+
+        if event.type == .keyDown {
+            guard !event.isARepeat else { return }
+            if event.keyCode == UInt16(kVK_F4) {
+                dispatchF4Trigger()
+                return
+            }
+            return
+        }
+
+        guard event.type == .systemDefined else { return }
+
+        let subtypeRaw = Int16(event.subtype.rawValue)
+        guard subtypeRaw == nxSubtypeAuxControlButtons || subtypeRaw == nxSubtypeMenu else { return }
+
+        let data1 = Int64(event.data1)
+        let systemKeyType = (data1 & 0xFFFF0000) >> 16
+        let keyFlags = data1 & 0x0000FFFF
+        let keyState = (keyFlags & 0xFF00) >> 8
+        let isAutoRepeat = (keyFlags & 0x1) != 0
+        let isF4LikeSystemKey = supportedF4SystemKeyTypes.contains(systemKeyType)
+
+        if isF4LikeSystemKey {
+            guard keyState == nxKeyStateDown, !isAutoRepeat else { return }
+            dispatchF4Trigger()
+            return
+        }
     }
 
     private func resetIfIdle() {
@@ -322,15 +481,12 @@ final class MouseChordMonitor {
         }
     }
 
-    private func dispatchMiddleButtonDownTrigger() {
-        let callback = onMiddleButtonDown
-        Task { @MainActor in
-            callback?()
-        }
-    }
+    private func dispatchF4Trigger() {
+        let currentTime = now()
+        guard currentTime - lastF4TriggerDispatchTime >= minimumTriggerIntervalSeconds else { return }
+        lastF4TriggerDispatchTime = currentTime
 
-    private func dispatchMiddleButtonUpTrigger() {
-        let callback = onMiddleButtonUp
+        let callback = onF4KeyDown
         Task { @MainActor in
             callback?()
         }
@@ -343,12 +499,26 @@ final class MouseChordMonitor {
         }
     }
 
+    private func dispatchSideButtonUpTrigger(buttonNumber: Int64, location: CGPoint) {
+        let callback = onSideButtonUp
+        Task { @MainActor in
+            callback?(buttonNumber, location)
+        }
+    }
+
+    private func dispatchSideButtonDraggedTrigger(buttonNumber: Int64, location: CGPoint) {
+        let callback = onSideButtonDragged
+        Task { @MainActor in
+            callback?(buttonNumber, location)
+        }
+    }
+
     private func resetState() {
         stopReleasePolling()
         leftDown = false
         rightDown = false
+        suppressF4KeyUp = false
         suppressUntilButtonsUp = false
-        suppressMiddleButtonUntilUp = false
         suppressedSideButtons.removeAll()
         chordTriggeredForCurrentPress = false
         chordPendingActionAfterRelease = false

@@ -50,6 +50,31 @@ Trigger interactive screenshot mode by pressing **left click + right click** nea
 
 Then click-drag to capture an area. The screenshot is copied to the clipboard.
 
+If enabled in the app:
+
+- Press **Back + Forward side buttons together** to paste clipboard (`Cmd+V`).
+- Press **Back side button alone** to pass Back through to apps normally.
+- Press **Forward side button** to toggle system Dictation on/off.
+- When Dictation is toggled off from Vibe Mouse, it automatically sends **Return**.
+
+### Experimental Forward Gestures (Preview)
+
+Enable this in **Settings → Behavior** to test an alternate control scheme:
+
+- **Single-click Forward**: toggle Dictation
+- **Press + drag Forward, then release**: capture selected area to clipboard
+- **Double-click Forward**: paste clipboard (`Cmd+V`)
+
+## Configure Dictation Shortcut (for Forward Button)
+
+Set macOS Dictation to use this shortcut so Vibe Mouse can toggle it:
+
+1. Open **System Settings → Keyboard → Dictation**
+2. Ensure Dictation is turned on
+3. Set Dictation shortcut to **Control + Option + Command + D**
+
+Vibe Mouse sends that shortcut when you press the Forward side button.
+
 ## If The App Is Not Listed In macOS Permission Pickers
 
 Use the `+` button in the macOS Settings permission page, then:

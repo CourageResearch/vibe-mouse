@@ -17,9 +17,7 @@ struct MenuPanelView: View {
                     VStack(alignment: .leading, spacing: 3) {
                         Text("Vibe Mouse")
                             .font(.system(size: 15, weight: .semibold, design: .rounded))
-                        Text(model.sideButtonPasteEnabled
-                            ? "Left+Right screenshot, Hold middle to dictate, Side button paste"
-                            : "Left+Right screenshot, Hold middle to dictate")
+                        Text(shortcutSummaryText)
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
@@ -29,11 +27,7 @@ struct MenuPanelView: View {
                     VStack(alignment: .leading, spacing: 3) {
                         Text("Enable mouse shortcuts")
                             .font(.subheadline.weight(.semibold))
-                        Text(model.isEnabled
-                            ? (model.sideButtonPasteEnabled
-                                ? "Listening globally for screenshot, push-to-talk dictation, and side-button paste triggers."
-                                : "Listening globally for screenshot and push-to-talk dictation triggers.")
-                            : "Global mouse shortcuts are disabled.")
+                        Text(model.isEnabled ? listeningSummaryText : "Global mouse shortcuts are disabled.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
@@ -79,6 +73,60 @@ struct MenuPanelView: View {
             get: { model.isEnabled },
             set: { model.isEnabled = $0 }
         )
+    }
+
+    private var shortcutSummaryText: String {
+        if model.experimentalForwardGesturesEnabled {
+            var segments = ["F4/Search screenshot", "Forward drag screenshot"]
+            if model.forwardButtonDictationEnabled {
+                segments.append("Forward single-click Dictation")
+            }
+            if model.sideButtonPasteEnabled {
+                segments.append("Forward double-click paste")
+            }
+            return segments.joined(separator: ", ")
+        }
+
+        if model.sideButtonPasteEnabled && model.forwardButtonDictationEnabled {
+            return "F4/Search screenshot, Back+Forward paste, Forward Dictation"
+        }
+
+        if model.sideButtonPasteEnabled {
+            return "F4/Search screenshot, Back+Forward paste"
+        }
+
+        if model.forwardButtonDictationEnabled {
+            return "F4/Search screenshot, Forward Dictation"
+        }
+
+        return "F4/Search screenshot"
+    }
+
+    private var listeningSummaryText: String {
+        if model.experimentalForwardGesturesEnabled {
+            var segments = ["Forward drag screenshot selection"]
+            if model.forwardButtonDictationEnabled {
+                segments.append("Forward single-click Dictation toggle")
+            }
+            if model.sideButtonPasteEnabled {
+                segments.append("Forward double-click paste")
+            }
+            return "Listening for F4/Search or left+right screenshot, and \(segments.joined(separator: ", "))."
+        }
+
+        if model.sideButtonPasteEnabled && model.forwardButtonDictationEnabled {
+            return "Listening for F4/Search or left+right screenshot, Back+Forward paste chord, and Forward Dictation toggle."
+        }
+
+        if model.sideButtonPasteEnabled {
+            return "Listening for F4/Search or left+right screenshot, and Back+Forward paste chord."
+        }
+
+        if model.forwardButtonDictationEnabled {
+            return "Listening for F4/Search or left+right screenshot, and Forward Dictation toggle."
+        }
+
+        return "Listening for F4/Search or left+right screenshot triggers."
     }
 }
 

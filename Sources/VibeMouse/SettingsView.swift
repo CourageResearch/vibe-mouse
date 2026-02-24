@@ -36,18 +36,57 @@ struct SettingsView: View {
         )
     }
 
-    private var pressReturnOnDictationStopBinding: Binding<Bool> {
-        Binding(
-            get: { model.pressReturnOnDictationStop },
-            set: { model.pressReturnOnDictationStop = $0 }
-        )
-    }
-
     private var sideButtonPasteBinding: Binding<Bool> {
         Binding(
             get: { model.sideButtonPasteEnabled },
             set: { model.sideButtonPasteEnabled = $0 }
         )
+    }
+
+    private var forwardButtonDictationBinding: Binding<Bool> {
+        Binding(
+            get: { model.forwardButtonDictationEnabled },
+            set: { model.forwardButtonDictationEnabled = $0 }
+        )
+    }
+
+    private var experimentalForwardGesturesBinding: Binding<Bool> {
+        Binding(
+            get: { model.experimentalForwardGesturesEnabled },
+            set: { model.experimentalForwardGesturesEnabled = $0 }
+        )
+    }
+
+    private var captureLegendGesture: String {
+        model.experimentalForwardGesturesEnabled
+            ? "F4/Search, Left + Right, or Forward Drag"
+            : "F4/Search or Left + Right"
+    }
+
+    private var captureLegendDetail: String {
+        model.experimentalForwardGesturesEnabled
+            ? "Capture via standard shortcuts or Forward drag-select"
+            : "Take screenshot to clipboard"
+    }
+
+    private var pasteLegendGesture: String {
+        model.experimentalForwardGesturesEnabled ? "Forward Double Click" : "Back + Forward"
+    }
+
+    private var pasteLegendDetail: String {
+        guard model.sideButtonPasteEnabled else { return "Enable in Behavior" }
+        return model.experimentalForwardGesturesEnabled
+            ? "Paste clipboard (Cmd+V)"
+            : "Paste clipboard (Cmd+V chord)"
+    }
+
+    private var dictationLegendGesture: String {
+        model.experimentalForwardGesturesEnabled ? "Forward Single Click" : "Forward Button"
+    }
+
+    private var dictationLegendDetail: String {
+        guard model.forwardButtonDictationEnabled else { return "Enable in Behavior" }
+        return "Toggle macOS Dictation (\(model.dictationShortcutLabel)); sends Return when Dictation stops."
     }
 
     private var headerCard: some View {
@@ -58,7 +97,11 @@ struct SettingsView: View {
                 Text("Vibe Mouse")
                     .font(.system(size: 22, weight: .semibold, design: .rounded))
 
-                Text("Three global shortcuts: capture, paste, and hold-to-talk dictation.")
+                Text(
+                    model.experimentalForwardGesturesEnabled
+                        ? "Experimental mode: Forward single-click Dictation, Forward drag screenshot, and Forward double-click paste."
+                        : "Global shortcuts: F4/Search capture, Back+Forward paste chord, and Forward-button Dictation toggle."
+                )
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
 
@@ -72,24 +115,25 @@ struct SettingsView: View {
                             ShortcutLegendItem(
                                 systemImage: "camera.viewfinder",
                                 title: "Capture",
-                                gesture: "Left + Right",
-                                detail: "Take screenshot to clipboard",
+                                gesture: captureLegendGesture,
+                                detail: captureLegendDetail,
                                 tint: .blue
                             )
                             ShortcutLegendItem(
                                 systemImage: "doc.on.clipboard",
                                 title: "Paste",
-                                gesture: "Side Button",
-                                detail: model.sideButtonPasteEnabled ? "Paste clipboard (Cmd+V)" : "Enable in Behavior",
+                                gesture: pasteLegendGesture,
+                                detail: pasteLegendDetail,
                                 tint: model.sideButtonPasteEnabled ? .green : .gray,
                                 enabled: model.sideButtonPasteEnabled
                             )
                             ShortcutLegendItem(
-                                systemImage: "waveform.and.mic",
+                                systemImage: "mic.fill",
                                 title: "Dictate",
-                                gesture: "Hold Middle",
-                                detail: "Release to stop dictation",
-                                tint: .orange
+                                gesture: dictationLegendGesture,
+                                detail: dictationLegendDetail,
+                                tint: model.forwardButtonDictationEnabled ? .orange : .gray,
+                                enabled: model.forwardButtonDictationEnabled
                             )
                         }
 
@@ -97,24 +141,25 @@ struct SettingsView: View {
                             ShortcutLegendItem(
                                 systemImage: "camera.viewfinder",
                                 title: "Capture",
-                                gesture: "Left + Right",
-                                detail: "Take screenshot to clipboard",
+                                gesture: captureLegendGesture,
+                                detail: captureLegendDetail,
                                 tint: .blue
                             )
                             ShortcutLegendItem(
                                 systemImage: "doc.on.clipboard",
                                 title: "Paste",
-                                gesture: "Side Button",
-                                detail: model.sideButtonPasteEnabled ? "Paste clipboard (Cmd+V)" : "Enable in Behavior",
+                                gesture: pasteLegendGesture,
+                                detail: pasteLegendDetail,
                                 tint: model.sideButtonPasteEnabled ? .green : .gray,
                                 enabled: model.sideButtonPasteEnabled
                             )
                             ShortcutLegendItem(
-                                systemImage: "waveform.and.mic",
+                                systemImage: "mic.fill",
                                 title: "Dictate",
-                                gesture: "Hold Middle",
-                                detail: "Release to stop dictation",
-                                tint: .orange
+                                gesture: dictationLegendGesture,
+                                detail: dictationLegendDetail,
+                                tint: model.forwardButtonDictationEnabled ? .orange : .gray,
+                                enabled: model.forwardButtonDictationEnabled
                             )
                         }
                     }
@@ -137,7 +182,11 @@ struct SettingsView: View {
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Enable mouse shortcuts")
                             .font(.headline)
-                        Text("When enabled, the app listens globally for left+right screenshot capture and middle-button push-to-talk dictation (hold to talk, release to stop).")
+                        Text(
+                            model.experimentalForwardGesturesEnabled
+                                ? "When enabled, experimental Forward gestures are active: single-click Dictation, drag-select screenshot, and double-click paste."
+                                : "When enabled, the app listens globally for screenshot capture (F4/Search or left+right), optional Back+Forward paste chord, and optional Forward-button Dictation toggle."
+                        )
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
@@ -151,14 +200,54 @@ struct SettingsView: View {
 
                 HStack(spacing: 12) {
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("Enable side-button paste")
+                        Text("Enable experimental Forward gestures")
                             .font(.headline)
-                        Text("Use side mouse buttons (Back/Forward) to send Cmd+V. When off, side buttons are passed through to apps.")
+                        Text("Preview mode: single-click Forward toggles Dictation, drag Forward selects screenshot area on release, and double-click Forward pastes clipboard.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Toggle("", isOn: experimentalForwardGesturesBinding)
+                        .labelsHidden()
+                        .toggleStyle(.switch)
+                }
+                .padding(14)
+                .roundedSurface()
+
+                HStack(spacing: 12) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(model.experimentalForwardGesturesEnabled ? "Enable Forward double-click paste" : "Enable Back+Forward paste")
+                            .font(.headline)
+                        Text(
+                            model.experimentalForwardGesturesEnabled
+                                ? "Use Forward double-click to send Cmd+V."
+                                : "Press Back and Forward side buttons together to send Cmd+V. Back alone is passed through to apps."
+                        )
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
                     Spacer()
                     Toggle("", isOn: sideButtonPasteBinding)
+                        .labelsHidden()
+                        .toggleStyle(.switch)
+                }
+                .padding(14)
+                .roundedSurface()
+
+                HStack(spacing: 12) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(model.experimentalForwardGesturesEnabled ? "Enable Forward single-click Dictation" : "Enable Forward-button Dictation")
+                            .font(.headline)
+                        Text(
+                            model.experimentalForwardGesturesEnabled
+                                ? "Use Forward single-click to send \(model.dictationShortcutLabel). Set the same shortcut in macOS Keyboard > Dictation. When Dictation stops, Return is sent automatically."
+                                : "Use the Forward side mouse button to send \(model.dictationShortcutLabel). Set the same shortcut in macOS Keyboard > Dictation. When Dictation stops, Return is sent automatically."
+                        )
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Toggle("", isOn: forwardButtonDictationBinding)
                         .labelsHidden()
                         .toggleStyle(.switch)
                 }
@@ -192,22 +281,6 @@ struct SettingsView: View {
                     }
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                }
-                .padding(14)
-                .roundedSurface()
-
-                HStack(spacing: 12) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Press Return when releasing dictation")
-                            .font(.headline)
-                        Text("When you release the middle button, stop dictation and optionally send Return to the same app.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                    Spacer()
-                    Toggle("", isOn: pressReturnOnDictationStopBinding)
-                        .labelsHidden()
-                        .toggleStyle(.switch)
                 }
                 .padding(14)
                 .roundedSurface()
@@ -275,7 +348,7 @@ struct SettingsView: View {
     private var statusCard: some View {
         SettingsCard(
             title: "Status",
-            subtitle: "Live monitor state and the latest screenshot, dictation, or paste action."
+            subtitle: "Live monitor state and the latest screenshot, paste, or Dictation action."
         ) {
             VStack(alignment: .leading, spacing: 12) {
                 HStack(alignment: .top, spacing: 12) {

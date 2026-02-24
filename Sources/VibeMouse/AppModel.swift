@@ -18,15 +18,26 @@ final class AppModel: ObservableObject {
         }
     }
 
-    @Published var pressReturnOnDictationStop: Bool {
-        didSet {
-            defaults.set(pressReturnOnDictationStop, forKey: Self.pressReturnOnDictationStopKey)
-        }
-    }
-
     @Published var sideButtonPasteEnabled: Bool {
         didSet {
             defaults.set(sideButtonPasteEnabled, forKey: Self.sideButtonPasteEnabledKey)
+            configureSideButtonCallback()
+            applyMonitorState()
+        }
+    }
+
+    @Published var forwardButtonDictationEnabled: Bool {
+        didSet {
+            defaults.set(forwardButtonDictationEnabled, forKey: Self.forwardButtonDictationEnabledKey)
+            configureSideButtonCallback()
+            applyMonitorState()
+        }
+    }
+
+    @Published var experimentalForwardGesturesEnabled: Bool {
+        didSet {
+            defaults.set(experimentalForwardGesturesEnabled, forKey: Self.experimentalForwardGesturesEnabledKey)
+            clearExperimentalForwardGestureState()
             configureSideButtonCallback()
             applyMonitorState()
         }
@@ -36,7 +47,6 @@ final class AppModel: ObservableObject {
     @Published private(set) var screenRecordingGranted = false
     @Published private(set) var monitorRunning = false
     @Published private(set) var screenshotCaptureInProgress = false
-    @Published private(set) var dictationActive = false
     @Published private(set) var monitorStatusMessage = "Not started"
     @Published private(set) var lastActionMessage = "Ready"
 
@@ -47,52 +57,70 @@ final class AppModel: ObservableObject {
         return "computermouse.fill"
     }
 
+    var dictationShortcutLabel: String {
+        "Control+Option+Command+D"
+    }
+
     private static let enabledKey = "mouseChordShot.enabled"
     private static let chordWindowKey = "mouseChordShot.chordWindowMs"
-    private static let pressReturnOnDictationStopKey = "mouseChordShot.dictation.pressReturnOnStop"
     private static let sideButtonPasteEnabledKey = "mouseChordShot.paste.sideButtonEnabled"
+    private static let forwardButtonDictationEnabledKey = "mouseChordShot.dictation.forwardButtonEnabled"
+    private static let experimentalForwardGesturesEnabledKey = "mouseChordShot.forward.experimentalGesturesEnabled"
+    private static let backSideButtonNumber: Int64 = 3
+    private static let forwardSideButtonNumber: Int64 = 4
+    private static let forwardComboDecisionDelaySeconds: TimeInterval = 0.07
+    private static let forwardDoubleClickWindowSeconds: TimeInterval = 0.24
+    private static let forwardDragStartThresholdPoints: CGFloat = 10
+    private static let returnAfterDictationStopDelaySeconds: TimeInterval = 0.12
 
     private let defaults: UserDefaults
     private let monitor: MouseChordMonitor
     private let screenshotService: ScreenshotService
-    private let dictationService: DictationService
     private let pasteService: PasteService
+    private let dictationService: DictationService
+    private let dragSelectionOverlay: DragSelectionOverlay
     private var activationObserver: NSObjectProtocol?
-    private var middleButtonHeldForDictation = false
-    private var dictationStartInProgress = false
-    private var dictationStopInProgress = false
-    private var stopDictationAfterStartCompletes = false
-    private var startDictationAfterStopCompletes = false
-    private var dictationTargetProcessID: pid_t?
     private var pasteInProgress = false
+    private var dictationInProgress = false
+    private var dictationLikelyActive = false
+    private var pendingForwardActionTask: Task<Void, Never>?
+    private var pendingForwardSingleClickTask: Task<Void, Never>?
     private var lastPasteTriggerTime: TimeInterval = 0
+    private var lastDictationTriggerTime: TimeInterval = 0
+    private var forwardPressStartLocation: CGPoint?
+    private var forwardPressCurrentLocation: CGPoint?
+    private var forwardDragSelectionInProgress = false
 
     init(
         defaults: UserDefaults = .standard,
         monitor: MouseChordMonitor = MouseChordMonitor(),
         screenshotService: ScreenshotService = ScreenshotService(),
+        pasteService: PasteService = PasteService(),
         dictationService: DictationService = DictationService(),
-        pasteService: PasteService = PasteService()
+        dragSelectionOverlay: DragSelectionOverlay = DragSelectionOverlay()
     ) {
         self.defaults = defaults
         self.monitor = monitor
         self.screenshotService = screenshotService
-        self.dictationService = dictationService
         self.pasteService = pasteService
+        self.dictationService = dictationService
+        self.dragSelectionOverlay = dragSelectionOverlay
         self.isEnabled = defaults.object(forKey: Self.enabledKey) as? Bool ?? true
         self.chordWindowMs = defaults.object(forKey: Self.chordWindowKey) as? Double ?? 60
-        self.pressReturnOnDictationStop = defaults.object(forKey: Self.pressReturnOnDictationStopKey) as? Bool ?? true
         self.sideButtonPasteEnabled = defaults.object(forKey: Self.sideButtonPasteEnabledKey) as? Bool ?? true
+        self.forwardButtonDictationEnabled = defaults.object(
+            forKey: Self.forwardButtonDictationEnabledKey
+        ) as? Bool ?? true
+        self.experimentalForwardGesturesEnabled = defaults.object(
+            forKey: Self.experimentalForwardGesturesEnabledKey
+        ) as? Bool ?? false
 
         self.monitor.chordWindowSeconds = max(0.02, self.chordWindowMs / 1_000.0)
         self.monitor.onChord = { [weak self] in
             self?.handleChordTriggered()
         }
-        self.monitor.onMiddleButtonDown = { [weak self] in
-            self?.handleMiddleButtonDown()
-        }
-        self.monitor.onMiddleButtonUp = { [weak self] in
-            self?.handleMiddleButtonUp()
+        self.monitor.onF4KeyDown = { [weak self] in
+            self?.handleF4Triggered()
         }
         configureSideButtonCallback()
 
@@ -200,6 +228,8 @@ final class AppModel: ObservableObject {
 
     private func applyMonitorState() {
         guard isEnabled else {
+            clearForwardPendingTasks()
+            clearExperimentalForwardGestureState()
             monitor.stop()
             monitorRunning = false
             monitorStatusMessage = "Disabled"
@@ -207,6 +237,8 @@ final class AppModel: ObservableObject {
         }
 
         if screenshotCaptureInProgress {
+            clearForwardPendingTasks()
+            clearExperimentalForwardGestureState()
             monitor.stop()
             monitorRunning = false
             monitorStatusMessage = "Paused while screenshot tool is active"
@@ -219,9 +251,7 @@ final class AppModel: ObservableObject {
         case .started:
             monitorRunning = true
             if accessibilityTrusted {
-                monitorStatusMessage = sideButtonPasteEnabled
-                    ? "Listening for left+right screenshot, middle-button push-to-talk, and side-button paste"
-                    : "Listening for left+right screenshot and middle-button push-to-talk"
+                monitorStatusMessage = monitorListeningStatusDescription()
             } else {
                 monitorStatusMessage = "Waiting for Accessibility permission"
             }
@@ -236,19 +266,93 @@ final class AppModel: ObservableObject {
         runScreenshot()
     }
 
-    private func handleMiddleButtonDown() {
+    private func handleF4Triggered() {
         guard isEnabled else { return }
-        startDictationPushToTalk()
-    }
-
-    private func handleMiddleButtonUp() {
-        guard isEnabled else { return }
-        stopDictationPushToTalk()
+        runScreenshot()
     }
 
     private func handleSideButtonDown(_ buttonNumber: Int64) {
-        guard isEnabled, sideButtonPasteEnabled else { return }
-        runPasteFromSideButton(buttonNumber)
+        guard isEnabled else { return }
+        guard buttonNumber == Self.forwardSideButtonNumber else { return }
+
+        if experimentalForwardGesturesEnabled {
+            handleExperimentalForwardDown()
+            return
+        }
+
+        clearForwardPendingTasks()
+        let comboDelayNanoseconds = UInt64((Self.forwardComboDecisionDelaySeconds * 1_000_000_000).rounded())
+        pendingForwardActionTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: comboDelayNanoseconds)
+            guard !Task.isCancelled else { return }
+
+            await MainActor.run {
+                guard let self else { return }
+                self.pendingForwardActionTask = nil
+
+                if self.sideButtonPasteEnabled, self.isBackSideButtonDown() {
+                    self.runPasteFromSideButtonCombo()
+                    return
+                }
+
+                if self.forwardButtonDictationEnabled {
+                    self.runDictationFromForwardButton()
+                }
+            }
+        }
+    }
+
+    private func handleSideButtonUp(_ buttonNumber: Int64, location: CGPoint) {
+        guard isEnabled, experimentalForwardGesturesEnabled else { return }
+        guard buttonNumber == Self.forwardSideButtonNumber else { return }
+        handleExperimentalForwardUp(location: location)
+    }
+
+    private func handleSideButtonDragged(_ buttonNumber: Int64, location: CGPoint) {
+        guard isEnabled, experimentalForwardGesturesEnabled else { return }
+        guard buttonNumber == Self.forwardSideButtonNumber else { return }
+        handleExperimentalForwardDragged(location: location)
+    }
+
+    private func handleExperimentalForwardDown() {
+        clearExperimentalForwardGestureState()
+        let currentLocation = NSEvent.mouseLocation
+        forwardPressStartLocation = currentLocation
+        forwardPressCurrentLocation = currentLocation
+    }
+
+    private func handleExperimentalForwardDragged(location: CGPoint) {
+        guard let startLocation = forwardPressStartLocation else { return }
+        forwardPressCurrentLocation = location
+
+        if !forwardDragSelectionInProgress {
+            let deltaX = location.x - startLocation.x
+            let deltaY = location.y - startLocation.y
+            let dragDistance = hypot(deltaX, deltaY)
+            guard dragDistance >= Self.forwardDragStartThresholdPoints else { return }
+
+            pendingForwardSingleClickTask?.cancel()
+            pendingForwardSingleClickTask = nil
+            forwardDragSelectionInProgress = true
+            lastActionMessage = "Release Forward to capture selected area."
+        }
+
+        dragSelectionOverlay.updateSelection(from: startLocation, to: location)
+    }
+
+    private func handleExperimentalForwardUp(location: CGPoint) {
+        guard let startLocation = forwardPressStartLocation else { return }
+        let didDragSelect = forwardDragSelectionInProgress
+        let endLocation = location
+
+        clearExperimentalForwardGestureState()
+
+        if didDragSelect {
+            runForwardDragScreenshot(from: startLocation, to: endLocation)
+            return
+        }
+
+        handleForwardSingleOrDoubleClick()
     }
 
     private func runScreenshot() {
@@ -259,18 +363,7 @@ final class AppModel: ObservableObject {
             return
         }
 
-        if !screenRecordingGranted {
-            lastActionMessage = "Screen Recording permission is required."
-            NSApplication.shared.activate(ignoringOtherApps: true)
-            _ = Permissions.screenRecordingGranted(prompt: true)
-            refreshPermissions()
-            guard screenRecordingGranted else {
-                Permissions.openScreenRecordingSettings()
-                Permissions.revealAppInFinder()
-                lastActionMessage = "Add/enable Vibe Mouse in Screen & System Audio Recording (use + if not listed)."
-                return
-            }
-        }
+        guard ensureScreenRecordingPermissionForScreenshot() else { return }
 
         screenshotCaptureInProgress = true
         applyMonitorState()
@@ -295,7 +388,7 @@ final class AppModel: ObservableObject {
         }
     }
 
-    private func runPasteFromSideButton(_ buttonNumber: Int64) {
+    private func runPasteFromSideButtonCombo() {
         let currentTime = ProcessInfo.processInfo.systemUptime
         // Defend against hardware bounce/repeat events causing duplicate paste.
         if currentTime - lastPasteTriggerTime < 0.18 {
@@ -307,15 +400,14 @@ final class AppModel: ObservableObject {
         guard ensureAccessibilityForAutomation(triggerLabel: "paste shortcut") else { return }
 
         pasteInProgress = true
-        lastActionMessage = "Pasting clipboard via side button..."
+        lastActionMessage = "Pasting clipboard via Back+Forward chord..."
         pasteService.pasteClipboard { [weak self] result in
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 self.pasteInProgress = false
                 switch result {
                 case .success:
-                    let sideLabel = buttonNumber == 3 ? "Back side button" : "Forward side button"
-                    self.lastActionMessage = "Clipboard pasted (\(sideLabel))."
+                    self.lastActionMessage = "Clipboard pasted (Back + Forward side-button chord)."
                 case .failure(.failed(let message)):
                     self.lastActionMessage = "Could not paste clipboard: \(message)"
                 }
@@ -323,103 +415,125 @@ final class AppModel: ObservableObject {
         }
     }
 
-    private func startDictationPushToTalk() {
-        middleButtonHeldForDictation = true
-        stopDictationAfterStartCompletes = false
-
-        guard !dictationStartInProgress else { return }
-        if dictationStopInProgress {
-            startDictationAfterStopCompletes = true
-            lastActionMessage = "Waiting for previous dictation stop to finish..."
+    private func runPasteFromForwardDoubleClick() {
+        guard sideButtonPasteEnabled else {
+            lastActionMessage = "Forward double-click paste is disabled in Behavior."
             return
         }
-        guard !dictationActive else { return }
-        guard ensureAccessibilityForAutomation(triggerLabel: "dictation trigger") else { return }
 
-        startDictationAfterStopCompletes = false
-        dictationStartInProgress = true
-        dictationTargetProcessID = NSWorkspace.shared.frontmostApplication?.processIdentifier
-        lastActionMessage = "Starting dictation..."
+        let currentTime = ProcessInfo.processInfo.systemUptime
+        if currentTime - lastPasteTriggerTime < 0.18 {
+            return
+        }
+        lastPasteTriggerTime = currentTime
 
-        dictationService.startDictation(targetProcessID: dictationTargetProcessID) { [weak self] result in
+        guard !pasteInProgress else { return }
+        guard ensureAccessibilityForAutomation(triggerLabel: "paste shortcut") else { return }
+
+        pasteInProgress = true
+        lastActionMessage = "Pasting clipboard via Forward double-click..."
+        pasteService.pasteClipboard { [weak self] result in
             Task { @MainActor [weak self] in
                 guard let self else { return }
-                self.dictationStartInProgress = false
+                self.pasteInProgress = false
                 switch result {
                 case .success:
-                    self.dictationActive = true
-                    if self.stopDictationAfterStartCompletes || !self.middleButtonHeldForDictation {
-                        self.stopDictationAfterStartCompletes = false
-                        self.stopDictationAfterPushToTalkStart()
-                    } else {
-                        self.lastActionMessage = "Dictation active while middle button is held. Release to stop."
-                    }
-                case .failure(.alreadyRunning):
-                    self.lastActionMessage = "Dictation trigger is already in progress."
+                    self.lastActionMessage = "Clipboard pasted (Forward double-click)."
                 case .failure(.failed(let message)):
-                    self.dictationActive = false
-                    self.dictationTargetProcessID = nil
-                    self.lastActionMessage = "Could not start dictation: \(message)"
+                    self.lastActionMessage = "Could not paste clipboard: \(message)"
                 }
             }
         }
     }
 
-    private func stopDictationPushToTalk() {
-        middleButtonHeldForDictation = false
-        startDictationAfterStopCompletes = false
+    private func runDictationFromForwardButton() {
+        let currentTime = ProcessInfo.processInfo.systemUptime
+        if currentTime - lastDictationTriggerTime < 0.18 {
+            return
+        }
+        lastDictationTriggerTime = currentTime
 
-        if dictationStartInProgress {
-            stopDictationAfterStartCompletes = true
+        guard !dictationInProgress else { return }
+        guard ensureAccessibilityForAutomation(triggerLabel: "dictation shortcut") else { return }
+        let wasLikelyActive = dictationLikelyActive
+
+        dictationInProgress = true
+        lastActionMessage = wasLikelyActive
+            ? "Stopping Dictation via Forward button..."
+            : "Starting Dictation via Forward button..."
+        dictationService.toggleDictation { [weak self] result in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.dictationInProgress = false
+                switch result {
+                case .success:
+                    self.dictationLikelyActive = !wasLikelyActive
+                    if wasLikelyActive {
+                        self.lastActionMessage = "Dictation stopped. Sending Return..."
+                        self.sendReturnAfterDictationStop()
+                    } else {
+                        self.lastActionMessage = "Dictation started (Forward side button)."
+                    }
+                case .failure(.failed(let message)):
+                    self.lastActionMessage = "Could not toggle Dictation: \(message)"
+                }
+            }
+        }
+    }
+
+    private func runForwardDragScreenshot(from startLocation: CGPoint, to endLocation: CGPoint) {
+        refreshPermissions()
+        guard ensureScreenRecordingPermissionForScreenshot() else { return }
+
+        guard !screenshotCaptureInProgress else {
+            lastActionMessage = "A screenshot capture is already in progress."
             return
         }
 
-        guard dictationActive else { return }
-        guard !dictationStopInProgress else { return }
-
-        stopDictationAfterStartCompletes = false
-        stopDictationAfterPushToTalkStart()
-    }
-
-    private func stopDictationAfterPushToTalkStart() {
-        guard !dictationStopInProgress else { return }
-
-        dictationStopInProgress = true
-        let shouldPressReturn = pressReturnOnDictationStop
-        let targetProcessID = dictationTargetProcessID
-        lastActionMessage = shouldPressReturn
-            ? "Stopping dictation on release and pressing Return..."
-            : "Stopping dictation on release..."
-
-        dictationService.stopDictation(
-            targetProcessID: targetProcessID,
-            pressReturnAfterStop: shouldPressReturn
-        ) { [weak self] result in
+        screenshotCaptureInProgress = true
+        applyMonitorState()
+        lastActionMessage = "Capturing selected area..."
+        screenshotService.captureRectangleToClipboard(from: startLocation, to: endLocation) { [weak self] result in
             Task { @MainActor [weak self] in
                 guard let self else { return }
-                self.dictationStopInProgress = false
+                self.screenshotCaptureInProgress = false
+                self.applyMonitorState()
+
                 switch result {
                 case .success:
-                    self.dictationActive = false
-                    self.dictationTargetProcessID = nil
-                    self.lastActionMessage = shouldPressReturn
-                        ? "Dictation stopped and Return pressed."
-                        : "Dictation stopped."
+                    self.lastActionMessage = "Screenshot captured to clipboard (Forward drag)."
+                case .failure(.cancelled):
+                    self.lastActionMessage = "Forward-drag screenshot canceled."
                 case .failure(.alreadyRunning):
-                    self.lastActionMessage = "Dictation trigger is already in progress."
+                    self.lastActionMessage = "A screenshot capture is already in progress."
                 case .failure(.failed(let message)):
-                    if message.localizedCaseInsensitiveContains("dictation")
-                        && message.localizedCaseInsensitiveContains("menu item") {
-                        self.dictationActive = false
-                        self.dictationTargetProcessID = nil
-                    }
-                    self.lastActionMessage = "Could not stop dictation: \(message)"
+                    self.lastActionMessage = "Screenshot failed: \(message)"
                 }
+            }
+        }
+    }
 
-                if self.startDictationAfterStopCompletes, self.middleButtonHeldForDictation {
-                    self.startDictationAfterStopCompletes = false
-                    self.startDictationPushToTalk()
+    private func handleForwardSingleOrDoubleClick() {
+        if let pendingTask = pendingForwardSingleClickTask {
+            pendingTask.cancel()
+            pendingForwardSingleClickTask = nil
+            runPasteFromForwardDoubleClick()
+            return
+        }
+
+        let waitNanoseconds = UInt64((Self.forwardDoubleClickWindowSeconds * 1_000_000_000).rounded())
+        pendingForwardSingleClickTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: waitNanoseconds)
+            guard !Task.isCancelled else { return }
+
+            await MainActor.run {
+                guard let self else { return }
+                self.pendingForwardSingleClickTask = nil
+                guard self.forwardButtonDictationEnabled else {
+                    self.lastActionMessage = "Forward single-click Dictation is disabled in Behavior."
+                    return
                 }
+                self.runDictationFromForwardButton()
             }
         }
     }
@@ -445,13 +559,124 @@ final class AppModel: ObservableObject {
         return true
     }
 
+    private func ensureScreenRecordingPermissionForScreenshot() -> Bool {
+        if !screenRecordingGranted {
+            lastActionMessage = "Screen Recording permission is required."
+            NSApplication.shared.activate(ignoringOtherApps: true)
+            _ = Permissions.screenRecordingGranted(prompt: true)
+            refreshPermissions()
+            guard screenRecordingGranted else {
+                Permissions.openScreenRecordingSettings()
+                Permissions.revealAppInFinder()
+                lastActionMessage = "Add/enable Vibe Mouse in Screen & System Audio Recording (use + if not listed)."
+                return false
+            }
+        }
+
+        return true
+    }
+
     private func configureSideButtonCallback() {
-        if sideButtonPasteEnabled {
+        var interceptedButtons: Set<Int64> = []
+        if sideButtonPasteEnabled || forwardButtonDictationEnabled || experimentalForwardGesturesEnabled {
+            interceptedButtons.insert(Self.forwardSideButtonNumber)
+        }
+
+        monitor.interceptedSideMouseButtons = interceptedButtons
+        if !interceptedButtons.isEmpty {
             monitor.onSideButtonDown = { [weak self] buttonNumber in
                 self?.handleSideButtonDown(buttonNumber)
             }
+            monitor.onSideButtonUp = { [weak self] buttonNumber, location in
+                self?.handleSideButtonUp(buttonNumber, location: location)
+            }
+            monitor.onSideButtonDragged = { [weak self] buttonNumber, location in
+                self?.handleSideButtonDragged(buttonNumber, location: location)
+            }
         } else {
             monitor.onSideButtonDown = nil
+            monitor.onSideButtonUp = nil
+            monitor.onSideButtonDragged = nil
         }
+    }
+
+    private func monitorListeningStatusDescription() -> String {
+        let screenshotSegment = "screenshot (F4/Search or left+right)"
+        if experimentalForwardGesturesEnabled {
+            var forwardSegments: [String] = ["Forward drag screenshot capture"]
+            if forwardButtonDictationEnabled {
+                forwardSegments.append("Forward single-click Dictation toggle")
+            }
+            if sideButtonPasteEnabled {
+                forwardSegments.append("Forward double-click paste")
+            }
+            return "Listening for \(screenshotSegment) and \(forwardSegments.joined(separator: ", "))"
+        }
+
+        let backSegment = "Back+Forward paste chord"
+        let forwardSegment = "Forward button Dictation toggle"
+
+        if sideButtonPasteEnabled && forwardButtonDictationEnabled {
+            return "Listening for \(screenshotSegment), \(backSegment), and \(forwardSegment)"
+        }
+
+        if sideButtonPasteEnabled {
+            return "Listening for \(screenshotSegment) and \(backSegment)"
+        }
+
+        if forwardButtonDictationEnabled {
+            return "Listening for \(screenshotSegment) and \(forwardSegment)"
+        }
+
+        return "Listening for \(screenshotSegment)"
+    }
+
+    private func clearForwardPendingTasks() {
+        pendingForwardActionTask?.cancel()
+        pendingForwardActionTask = nil
+        pendingForwardSingleClickTask?.cancel()
+        pendingForwardSingleClickTask = nil
+    }
+
+    private func clearExperimentalForwardGestureState() {
+        forwardPressStartLocation = nil
+        forwardPressCurrentLocation = nil
+        forwardDragSelectionInProgress = false
+        dragSelectionOverlay.hide()
+    }
+
+    private func sendReturnAfterDictationStop() {
+        let delay = Self.returnAfterDictationStopDelaySeconds
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+
+            if delay > 0 {
+                let nanoseconds = UInt64((delay * 1_000_000_000).rounded())
+                try? await Task.sleep(nanoseconds: nanoseconds)
+            }
+
+            self.dictationService.pressReturn { [weak self] result in
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    switch result {
+                    case .success:
+                        self.lastActionMessage = "Dictation stopped and Return sent."
+                    case .failure(.failed(let message)):
+                        self.lastActionMessage = "Dictation stopped, but Return failed: \(message)"
+                    }
+                }
+            }
+        }
+    }
+
+    private func isBackSideButtonDown() -> Bool {
+        guard let backButton = CGMouseButton(rawValue: UInt32(Self.backSideButtonNumber)) else {
+            return false
+        }
+
+        return CGEventSource.buttonState(
+            .combinedSessionState,
+            button: backButton
+        )
     }
 }
