@@ -43,6 +43,14 @@ final class AppModel: ObservableObject {
         }
     }
 
+    @Published var capsLockScreenshotEnabled: Bool {
+        didSet {
+            defaults.set(capsLockScreenshotEnabled, forKey: Self.capsLockScreenshotEnabledKey)
+            configureKeyboardCaptureCallbacks()
+            applyMonitorState()
+        }
+    }
+
     @Published private(set) var accessibilityTrusted = false
     @Published private(set) var screenRecordingGranted = false
     @Published private(set) var monitorRunning = false
@@ -66,6 +74,7 @@ final class AppModel: ObservableObject {
     private static let sideButtonPasteEnabledKey = "mouseChordShot.paste.sideButtonEnabled"
     private static let forwardButtonDictationEnabledKey = "mouseChordShot.dictation.forwardButtonEnabled"
     private static let experimentalForwardGesturesEnabledKey = "mouseChordShot.forward.experimentalGesturesEnabled"
+    private static let capsLockScreenshotEnabledKey = "mouseChordShot.screenshot.capsLockEnabled"
     private static let backSideButtonNumber: Int64 = 3
     private static let forwardSideButtonNumber: Int64 = 4
     private static let forwardComboDecisionDelaySeconds: TimeInterval = 0.07
@@ -80,6 +89,7 @@ final class AppModel: ObservableObject {
     private let dictationService: DictationService
     private let dragSelectionOverlay: DragSelectionOverlay
     private var activationObserver: NSObjectProtocol?
+    private var terminationObserver: NSObjectProtocol?
     private var pasteInProgress = false
     private var dictationInProgress = false
     private var dictationLikelyActive = false
@@ -114,14 +124,15 @@ final class AppModel: ObservableObject {
         self.experimentalForwardGesturesEnabled = defaults.object(
             forKey: Self.experimentalForwardGesturesEnabledKey
         ) as? Bool ?? false
+        self.capsLockScreenshotEnabled = defaults.object(
+            forKey: Self.capsLockScreenshotEnabledKey
+        ) as? Bool ?? true
 
         self.monitor.chordWindowSeconds = max(0.02, self.chordWindowMs / 1_000.0)
         self.monitor.onChord = { [weak self] in
             self?.handleChordTriggered()
         }
-        self.monitor.onF4KeyDown = { [weak self] in
-            self?.handleF4Triggered()
-        }
+        configureKeyboardCaptureCallbacks()
         configureSideButtonCallback()
 
         refreshPermissions()
@@ -137,6 +148,16 @@ final class AppModel: ObservableObject {
                 guard let self else { return }
                 self.refreshPermissions()
                 self.applyMonitorState()
+            }
+        }
+
+        terminationObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.willTerminateNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.monitor.stop()
             }
         }
     }
@@ -266,7 +287,7 @@ final class AppModel: ObservableObject {
         runScreenshot()
     }
 
-    private func handleF4Triggered() {
+    private func handleKeyboardCaptureTriggered() {
         guard isEnabled else { return }
         runScreenshot()
     }
@@ -600,8 +621,24 @@ final class AppModel: ObservableObject {
         }
     }
 
+    private func configureKeyboardCaptureCallbacks() {
+        monitor.disableCapsLockLockingWhileIntercepting = capsLockScreenshotEnabled
+
+        monitor.onF4KeyDown = { [weak self] in
+            self?.handleKeyboardCaptureTriggered()
+        }
+
+        if capsLockScreenshotEnabled {
+            monitor.onCapsLockKeyDown = { [weak self] in
+                self?.handleKeyboardCaptureTriggered()
+            }
+        } else {
+            monitor.onCapsLockKeyDown = nil
+        }
+    }
+
     private func monitorListeningStatusDescription() -> String {
-        let screenshotSegment = "screenshot (F4/Search or left+right)"
+        let screenshotSegment = "screenshot (\(screenshotTriggerLabel))"
         if experimentalForwardGesturesEnabled {
             var forwardSegments: [String] = ["Forward drag screenshot capture"]
             if forwardButtonDictationEnabled {
@@ -629,6 +666,13 @@ final class AppModel: ObservableObject {
         }
 
         return "Listening for \(screenshotSegment)"
+    }
+
+    private var screenshotTriggerLabel: String {
+        if capsLockScreenshotEnabled {
+            return "Caps Lock, F4/Search, or left+right"
+        }
+        return "F4/Search or left+right"
     }
 
     private func clearForwardPendingTasks() {

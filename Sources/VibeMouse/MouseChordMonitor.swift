@@ -2,6 +2,8 @@ import Foundation
 import CoreGraphics
 import Carbon.HIToolbox
 import AppKit
+import IOKit
+import IOKit.hidsystem
 
 final class MouseChordMonitor {
     enum StartResult {
@@ -12,6 +14,12 @@ final class MouseChordMonitor {
     var chordWindowSeconds: TimeInterval = 0.06
     var onChord: (@MainActor @Sendable () -> Void)?
     var onF4KeyDown: (@MainActor @Sendable () -> Void)?
+    var onCapsLockKeyDown: (@MainActor @Sendable () -> Void)?
+    var disableCapsLockLockingWhileIntercepting = false {
+        didSet {
+            applyCapsLockLockingModeIfNeeded()
+        }
+    }
     var onSideButtonDown: (@MainActor @Sendable (_ buttonNumber: Int64) -> Void)?
     var onSideButtonUp: (@MainActor @Sendable (_ buttonNumber: Int64, _ location: CGPoint) -> Void)?
     var onSideButtonDragged: (@MainActor @Sendable (_ buttonNumber: Int64, _ location: CGPoint) -> Void)?
@@ -37,9 +45,11 @@ final class MouseChordMonitor {
     private var suppressF4KeyUp = false
     private var suppressedSideButtons: Set<Int64> = []
     private var lastChordTriggerDispatchTime: TimeInterval = 0
-    private var lastF4TriggerDispatchTime: TimeInterval = 0
+    private var lastKeyboardTriggerDispatchTime: TimeInterval = 0
     private var releasePollTimer: DispatchSourceTimer?
     private var releasePollStartedAt: TimeInterval?
+    private var didApplyCapsLockLockingOverride = false
+    private var originalCapsLockDoesLockValue: UInt32?
 
     private let supportedSideMouseButtons: Set<Int64> = [3, 4]
     private let nxSystemDefinedEventTypeRawValue: UInt32 = 14 // NX_SYSDEFINED
@@ -66,10 +76,11 @@ final class MouseChordMonitor {
             | maskFor(.otherMouseDragged)
             | maskFor(.keyDown)
             | maskFor(.keyUp)
+            | maskFor(.flagsChanged)
             | maskForRawType(nxSystemDefinedEventTypeRawValue)
 
         guard let tap = CGEvent.tapCreate(
-            tap: .cgSessionEventTap,
+            tap: .cghidEventTap,
             place: .headInsertEventTap,
             options: .defaultTap,
             eventsOfInterest: mask,
@@ -91,6 +102,7 @@ final class MouseChordMonitor {
         self.runLoopSource = source
         self.attachedRunLoop = runLoop
         installFallbackKeyMonitorsIfNeeded()
+        applyCapsLockLockingModeIfNeeded()
         resetState()
         return .started
     }
@@ -107,6 +119,7 @@ final class MouseChordMonitor {
         eventTap = nil
         runLoopSource = nil
         attachedRunLoop = nil
+        restoreCapsLockLockingModeIfNeeded()
         removeFallbackKeyMonitors()
         resetState()
     }
@@ -187,6 +200,9 @@ final class MouseChordMonitor {
         case .keyUp:
             return handleKeyUp(event)
 
+        case .flagsChanged:
+            return handleFlagsChanged(event)
+
         default:
             return Unmanaged.passUnretained(event)
         }
@@ -260,6 +276,16 @@ final class MouseChordMonitor {
         let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
         let isAutoRepeat = event.getIntegerValueField(.keyboardEventAutorepeat) != 0
 
+        if keyCode == Int64(kVK_CapsLock) {
+            guard onCapsLockKeyDown != nil else {
+                return Unmanaged.passUnretained(event)
+            }
+
+            dispatchCapsLockTrigger()
+            forceCapsLockOff()
+            return nil
+        }
+
         if keyCode == Int64(kVK_F4) {
             guard onF4KeyDown != nil else {
                 return Unmanaged.passUnretained(event)
@@ -280,6 +306,14 @@ final class MouseChordMonitor {
 
     private func handleKeyUp(_ event: CGEvent) -> Unmanaged<CGEvent>? {
         let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
+
+        if keyCode == Int64(kVK_CapsLock) {
+            guard onCapsLockKeyDown != nil else {
+                return Unmanaged.passUnretained(event)
+            }
+            forceCapsLockOff()
+            return nil
+        }
 
         if keyCode == Int64(kVK_F4) {
             let shouldSuppress = suppressF4KeyUp
@@ -339,10 +373,25 @@ final class MouseChordMonitor {
         return Unmanaged.passUnretained(event)
     }
 
+    private func handleFlagsChanged(_ event: CGEvent) -> Unmanaged<CGEvent>? {
+        let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
+        if keyCode == Int64(kVK_CapsLock) {
+            guard onCapsLockKeyDown != nil else {
+                return Unmanaged.passUnretained(event)
+            }
+
+            dispatchCapsLockTrigger()
+            forceCapsLockOff()
+            return nil
+        }
+
+        return Unmanaged.passUnretained(event)
+    }
+
     private func installFallbackKeyMonitorsIfNeeded() {
         if fallbackGlobalKeyMonitor == nil {
             fallbackGlobalKeyMonitor = NSEvent.addGlobalMonitorForEvents(
-                matching: [.systemDefined, .keyDown, .keyUp]
+                matching: [.systemDefined, .keyDown, .keyUp, .flagsChanged]
             ) { [weak self] event in
                 self?.handleFallbackObservedEvent(event)
             }
@@ -350,7 +399,7 @@ final class MouseChordMonitor {
 
         if fallbackLocalKeyMonitor == nil {
             fallbackLocalKeyMonitor = NSEvent.addLocalMonitorForEvents(
-                matching: [.systemDefined, .keyDown, .keyUp]
+                matching: [.systemDefined, .keyDown, .keyUp, .flagsChanged]
             ) { [weak self] event in
                 self?.handleFallbackObservedEvent(event)
                 return event
@@ -371,17 +420,19 @@ final class MouseChordMonitor {
     }
 
     private func handleFallbackObservedEvent(_ event: NSEvent) {
-        guard onF4KeyDown != nil else { return }
+        let hasF4Handler = onF4KeyDown != nil
+        guard hasF4Handler else { return }
 
         if event.type == .keyDown {
             guard !event.isARepeat else { return }
-            if event.keyCode == UInt16(kVK_F4) {
+            if event.keyCode == UInt16(kVK_F4), hasF4Handler {
                 dispatchF4Trigger()
                 return
             }
             return
         }
 
+        guard hasF4Handler else { return }
         guard event.type == .systemDefined else { return }
 
         let subtypeRaw = Int16(event.subtype.rawValue)
@@ -482,11 +533,96 @@ final class MouseChordMonitor {
     }
 
     private func dispatchF4Trigger() {
-        let currentTime = now()
-        guard currentTime - lastF4TriggerDispatchTime >= minimumTriggerIntervalSeconds else { return }
-        lastF4TriggerDispatchTime = currentTime
+        dispatchKeyboardTrigger(onF4KeyDown)
+    }
 
-        let callback = onF4KeyDown
+    private func dispatchCapsLockTrigger() {
+        dispatchKeyboardTrigger(onCapsLockKeyDown)
+    }
+
+    private func forceCapsLockOff() {
+        let matching = IOServiceMatching(kIOHIDSystemClass)
+        let service = IOServiceGetMatchingService(kIOMainPortDefault, matching)
+        guard service != 0 else { return }
+        defer { IOObjectRelease(service) }
+
+        var connect: io_connect_t = 0
+        let openResult = IOServiceOpen(service, mach_task_self_, UInt32(kIOHIDParamConnectType), &connect)
+        guard openResult == KERN_SUCCESS else { return }
+        defer { IOServiceClose(connect) }
+
+        _ = IOHIDSetModifierLockState(connect, Int32(kIOHIDCapsLockState), false)
+    }
+
+    private func applyCapsLockLockingModeIfNeeded() {
+        if !disableCapsLockLockingWhileIntercepting {
+            restoreCapsLockLockingModeIfNeeded()
+            return
+        }
+
+        guard eventTap != nil else { return }
+
+        if !didApplyCapsLockLockingOverride {
+            originalCapsLockDoesLockValue = getHIDParameterValue(for: kIOHIDKeyboardCapsLockDoesLockKey)
+            didApplyCapsLockLockingOverride = true
+        }
+
+        _ = setHIDParameterValue(0, for: kIOHIDKeyboardCapsLockDoesLockKey)
+        forceCapsLockOff()
+    }
+
+    private func restoreCapsLockLockingModeIfNeeded() {
+        guard didApplyCapsLockLockingOverride else { return }
+
+        let restoreValue = originalCapsLockDoesLockValue ?? 1
+        _ = setHIDParameterValue(restoreValue, for: kIOHIDKeyboardCapsLockDoesLockKey)
+        originalCapsLockDoesLockValue = nil
+        didApplyCapsLockLockingOverride = false
+    }
+
+    private func getHIDParameterValue(for key: String) -> UInt32? {
+        let matching = IOServiceMatching(kIOHIDSystemClass)
+        let service = IOServiceGetMatchingService(kIOMainPortDefault, matching)
+        guard service != 0 else { return nil }
+        defer { IOObjectRelease(service) }
+
+        var connect: io_connect_t = 0
+        let openResult = IOServiceOpen(service, mach_task_self_, UInt32(kIOHIDParamConnectType), &connect)
+        guard openResult == KERN_SUCCESS else { return nil }
+        defer { IOServiceClose(connect) }
+
+        var value: UInt32 = 0
+        var size = IOByteCount(MemoryLayout<UInt32>.size)
+        let result = IOHIDGetParameter(connect, key as CFString, size, &value, &size)
+        guard result == KERN_SUCCESS else { return nil }
+        return value
+    }
+
+    private func setHIDParameterValue(_ value: UInt32, for key: String) -> kern_return_t {
+        let matching = IOServiceMatching(kIOHIDSystemClass)
+        let service = IOServiceGetMatchingService(kIOMainPortDefault, matching)
+        guard service != 0 else { return KERN_FAILURE }
+        defer { IOObjectRelease(service) }
+
+        var connect: io_connect_t = 0
+        let openResult = IOServiceOpen(service, mach_task_self_, UInt32(kIOHIDParamConnectType), &connect)
+        guard openResult == KERN_SUCCESS else { return openResult }
+        defer { IOServiceClose(connect) }
+
+        var mutableValue = value
+        return IOHIDSetParameter(
+            connect,
+            key as CFString,
+            &mutableValue,
+            IOByteCount(MemoryLayout<UInt32>.size)
+        )
+    }
+
+    private func dispatchKeyboardTrigger(_ callback: (@MainActor @Sendable () -> Void)?) {
+        let currentTime = now()
+        guard currentTime - lastKeyboardTriggerDispatchTime >= minimumTriggerIntervalSeconds else { return }
+        lastKeyboardTriggerDispatchTime = currentTime
+
         Task { @MainActor in
             callback?()
         }

@@ -77,7 +77,7 @@ struct MenuPanelView: View {
 
     private var shortcutSummaryText: String {
         if model.experimentalForwardGesturesEnabled {
-            var segments = ["F4/Search screenshot", "Forward drag screenshot"]
+            var segments = ["\(screenshotKeyboardSummaryGesture) screenshot", "Forward drag screenshot"]
             if model.forwardButtonDictationEnabled {
                 segments.append("Forward single-click Dictation")
             }
@@ -88,18 +88,18 @@ struct MenuPanelView: View {
         }
 
         if model.sideButtonPasteEnabled && model.forwardButtonDictationEnabled {
-            return "F4/Search screenshot, Back+Forward paste, Forward Dictation"
+            return "\(screenshotKeyboardCompactSummaryGesture) screenshot, Back+Forward paste, Forward Dictation"
         }
 
         if model.sideButtonPasteEnabled {
-            return "F4/Search screenshot, Back+Forward paste"
+            return "\(screenshotKeyboardCompactSummaryGesture) screenshot, Back+Forward paste"
         }
 
         if model.forwardButtonDictationEnabled {
-            return "F4/Search screenshot, Forward Dictation"
+            return "\(screenshotKeyboardCompactSummaryGesture) screenshot, Forward Dictation"
         }
 
-        return "F4/Search screenshot"
+        return "\(screenshotKeyboardCompactSummaryGesture) screenshot"
     }
 
     private var listeningSummaryText: String {
@@ -111,22 +111,34 @@ struct MenuPanelView: View {
             if model.sideButtonPasteEnabled {
                 segments.append("Forward double-click paste")
             }
-            return "Listening for F4/Search or left+right screenshot, and \(segments.joined(separator: ", "))."
+            return "Listening for \(screenshotListeningGesture) screenshot, and \(segments.joined(separator: ", "))."
         }
 
         if model.sideButtonPasteEnabled && model.forwardButtonDictationEnabled {
-            return "Listening for F4/Search or left+right screenshot, Back+Forward paste chord, and Forward Dictation toggle."
+            return "Listening for \(screenshotListeningGesture) screenshot, Back+Forward paste chord, and Forward Dictation toggle."
         }
 
         if model.sideButtonPasteEnabled {
-            return "Listening for F4/Search or left+right screenshot, and Back+Forward paste chord."
+            return "Listening for \(screenshotListeningGesture) screenshot, and Back+Forward paste chord."
         }
 
         if model.forwardButtonDictationEnabled {
-            return "Listening for F4/Search or left+right screenshot, and Forward Dictation toggle."
+            return "Listening for \(screenshotListeningGesture) screenshot, and Forward Dictation toggle."
         }
 
-        return "Listening for F4/Search or left+right screenshot triggers."
+        return "Listening for \(screenshotListeningGesture) screenshot triggers."
+    }
+
+    private var screenshotKeyboardSummaryGesture: String {
+        model.capsLockScreenshotEnabled ? "Caps Lock or F4/Search" : "F4/Search"
+    }
+
+    private var screenshotKeyboardCompactSummaryGesture: String {
+        model.capsLockScreenshotEnabled ? "Caps Lock/F4" : "F4"
+    }
+
+    private var screenshotListeningGesture: String {
+        model.capsLockScreenshotEnabled ? "Caps Lock, F4/Search, or left+right" : "F4/Search or left+right"
     }
 }
 

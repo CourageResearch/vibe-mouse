@@ -57,9 +57,21 @@ struct SettingsView: View {
         )
     }
 
+    private var capsLockScreenshotBinding: Binding<Bool> {
+        Binding(
+            get: { model.capsLockScreenshotEnabled },
+            set: { model.capsLockScreenshotEnabled = $0 }
+        )
+    }
+
     private var captureLegendGesture: String {
-        model.experimentalForwardGesturesEnabled
-            ? "F4/Search, Left + Right, or Forward Drag"
+        if model.experimentalForwardGesturesEnabled {
+            return model.capsLockScreenshotEnabled
+                ? "Caps Lock, F4/Search, Left + Right, or Forward Drag"
+                : "F4/Search, Left + Right, or Forward Drag"
+        }
+        return model.capsLockScreenshotEnabled
+            ? "Caps Lock, F4/Search, or Left + Right"
             : "F4/Search or Left + Right"
     }
 
@@ -94,13 +106,23 @@ struct SettingsView: View {
             VibingMouseBadge(size: 52, cornerRadius: 14)
 
             VStack(alignment: .leading, spacing: 10) {
-                Text("Vibe Mouse")
-                    .font(.system(size: 22, weight: .semibold, design: .rounded))
+                HStack(spacing: 10) {
+                    Text("Vibe Mouse")
+                        .font(.system(size: 22, weight: .semibold, design: .rounded))
+
+                    Text("Version \(settingsVersionTag)")
+                        .font(.system(.caption, design: .monospaced).weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(Color.primary.opacity(0.07))
+                        .clipShape(Capsule())
+                }
 
                 Text(
                     model.experimentalForwardGesturesEnabled
                         ? "Experimental mode: Forward single-click Dictation, Forward drag screenshot, and Forward double-click paste."
-                        : "Global shortcuts: F4/Search capture, Back+Forward paste chord, and Forward-button Dictation toggle."
+                        : "Global shortcuts: \(keyboardCaptureSummary) capture, Back+Forward paste chord, and Forward-button Dictation toggle."
                 )
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
@@ -185,13 +207,33 @@ struct SettingsView: View {
                         Text(
                             model.experimentalForwardGesturesEnabled
                                 ? "When enabled, experimental Forward gestures are active: single-click Dictation, drag-select screenshot, and double-click paste."
-                                : "When enabled, the app listens globally for screenshot capture (F4/Search or left+right), optional Back+Forward paste chord, and optional Forward-button Dictation toggle."
+                                : "When enabled, the app listens globally for screenshot capture (\(screenshotListeningLegend)), optional Back+Forward paste chord, and optional Forward-button Dictation toggle."
                         )
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
                     Spacer()
                     Toggle("", isOn: enabledBinding)
+                        .labelsHidden()
+                        .toggleStyle(.switch)
+                }
+                .padding(14)
+                .roundedSurface()
+
+                HStack(spacing: 12) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Use Caps Lock for screenshot")
+                            .font(.headline)
+                        Text(
+                            model.capsLockScreenshotEnabled
+                                ? "Overrides Caps Lock while mouse shortcuts are enabled. Press Caps Lock to start screenshot capture to clipboard."
+                                : "Caps Lock keeps normal behavior. Screenshot capture stays on F4/Search and left+right."
+                        )
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Toggle("", isOn: capsLockScreenshotBinding)
                         .labelsHidden()
                         .toggleStyle(.switch)
                 }
@@ -286,6 +328,30 @@ struct SettingsView: View {
                 .roundedSurface()
             }
         }
+    }
+
+    private var keyboardCaptureSummary: String {
+        model.capsLockScreenshotEnabled ? "Caps Lock/F4/Search" : "F4/Search"
+    }
+
+    private var settingsVersionTag: String {
+        let shortVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
+        let buildVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String
+
+        if let shortVersion, let buildVersion {
+            return "\(shortVersion) (\(buildVersion))"
+        }
+        if let shortVersion {
+            return shortVersion
+        }
+        if let buildVersion {
+            return "build \(buildVersion)"
+        }
+        return "dev"
+    }
+
+    private var screenshotListeningLegend: String {
+        model.capsLockScreenshotEnabled ? "Caps Lock, F4/Search, or left+right" : "F4/Search or left+right"
     }
 
     private var permissionsCard: some View {
