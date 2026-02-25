@@ -624,9 +624,8 @@ final class AppModel: ObservableObject {
     private func configureKeyboardCaptureCallbacks() {
         monitor.disableCapsLockLockingWhileIntercepting = capsLockScreenshotEnabled
 
-        monitor.onF4KeyDown = { [weak self] in
-            self?.handleKeyboardCaptureTriggered()
-        }
+        // F4 screenshot trigger is intentionally disabled.
+        monitor.onF4KeyDown = nil
 
         if capsLockScreenshotEnabled {
             monitor.onCapsLockKeyDown = { [weak self] in
@@ -670,9 +669,9 @@ final class AppModel: ObservableObject {
 
     private var screenshotTriggerLabel: String {
         if capsLockScreenshotEnabled {
-            return "Caps Lock, F4/Search, or left+right"
+            return "Caps Lock or left+right"
         }
-        return "F4/Search or left+right"
+        return "left+right"
     }
 
     private func clearForwardPendingTasks() {

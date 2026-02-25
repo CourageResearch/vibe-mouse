@@ -67,12 +67,12 @@ struct SettingsView: View {
     private var captureLegendGesture: String {
         if model.experimentalForwardGesturesEnabled {
             return model.capsLockScreenshotEnabled
-                ? "Caps Lock, F4/Search, Left + Right, or Forward Drag"
-                : "F4/Search, Left + Right, or Forward Drag"
+                ? "Caps Lock, Left + Right, or Forward Drag"
+                : "Left + Right or Forward Drag"
         }
         return model.capsLockScreenshotEnabled
-            ? "Caps Lock, F4/Search, or Left + Right"
-            : "F4/Search or Left + Right"
+            ? "Caps Lock or Left + Right"
+            : "Left + Right"
     }
 
     private var captureLegendDetail: String {
@@ -227,7 +227,7 @@ struct SettingsView: View {
                         Text(
                             model.capsLockScreenshotEnabled
                                 ? "Overrides Caps Lock while mouse shortcuts are enabled. Press Caps Lock to start screenshot capture to clipboard."
-                                : "Caps Lock keeps normal behavior. Screenshot capture stays on F4/Search and left+right."
+                                : "Caps Lock keeps normal behavior. Screenshot capture stays on left+right."
                         )
                             .font(.caption)
                             .foregroundStyle(.secondary)
@@ -331,7 +331,7 @@ struct SettingsView: View {
     }
 
     private var keyboardCaptureSummary: String {
-        model.capsLockScreenshotEnabled ? "Caps Lock/F4/Search" : "F4/Search"
+        model.capsLockScreenshotEnabled ? "Caps Lock + Left/Right" : "Left/Right"
     }
 
     private var settingsVersionTag: String {
@@ -351,7 +351,7 @@ struct SettingsView: View {
     }
 
     private var screenshotListeningLegend: String {
-        model.capsLockScreenshotEnabled ? "Caps Lock, F4/Search, or left+right" : "F4/Search or left+right"
+        model.capsLockScreenshotEnabled ? "Caps Lock or left+right" : "left+right"
     }
 
     private var permissionsCard: some View {

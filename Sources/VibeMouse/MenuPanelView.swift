@@ -130,15 +130,15 @@ struct MenuPanelView: View {
     }
 
     private var screenshotKeyboardSummaryGesture: String {
-        model.capsLockScreenshotEnabled ? "Caps Lock or F4/Search" : "F4/Search"
+        model.capsLockScreenshotEnabled ? "Caps Lock or Left/Right" : "Left/Right"
     }
 
     private var screenshotKeyboardCompactSummaryGesture: String {
-        model.capsLockScreenshotEnabled ? "Caps Lock/F4" : "F4"
+        model.capsLockScreenshotEnabled ? "Caps Lock/Left+Right" : "Left+Right"
     }
 
     private var screenshotListeningGesture: String {
-        model.capsLockScreenshotEnabled ? "Caps Lock, F4/Search, or left+right" : "F4/Search or left+right"
+        model.capsLockScreenshotEnabled ? "Caps Lock or left+right" : "left+right"
     }
 }
 

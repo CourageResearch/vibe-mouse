@@ -49,7 +49,6 @@ The status should show it is listening for the mouse chord.
 Trigger interactive screenshot mode with any of these:
 
 - Press **Caps Lock** (Vibe Mouse overrides Caps Lock while active and uses it as a screenshot key)
-- Press **F4/Search**
 - Press **left click + right click** nearly at the same time
 
 Then click-drag to capture an area. The screenshot is copied to the clipboard.
