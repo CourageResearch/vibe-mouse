@@ -51,6 +51,13 @@ final class AppModel: ObservableObject {
         }
     }
 
+    @Published var reverseScrollingEnabled: Bool {
+        didSet {
+            defaults.set(reverseScrollingEnabled, forKey: Self.reverseScrollingEnabledKey)
+            monitor.reverseScrollingEnabled = reverseScrollingEnabled
+        }
+    }
+
     @Published private(set) var accessibilityTrusted = false
     @Published private(set) var screenRecordingGranted = false
     @Published private(set) var monitorRunning = false
@@ -69,12 +76,25 @@ final class AppModel: ObservableObject {
         "Control+Option+Command+D"
     }
 
+    private var appDisplayName: String {
+        let displayName = Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String
+        let bundleName = Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String
+        if let displayName, !displayName.isEmpty {
+            return displayName
+        }
+        if let bundleName, !bundleName.isEmpty {
+            return bundleName
+        }
+        return "Vibe Mouse"
+    }
+
     private static let enabledKey = "mouseChordShot.enabled"
     private static let chordWindowKey = "mouseChordShot.chordWindowMs"
     private static let sideButtonPasteEnabledKey = "mouseChordShot.paste.sideButtonEnabled"
     private static let forwardButtonDictationEnabledKey = "mouseChordShot.dictation.forwardButtonEnabled"
     private static let experimentalForwardGesturesEnabledKey = "mouseChordShot.forward.experimentalGesturesEnabled"
     private static let capsLockScreenshotEnabledKey = "mouseChordShot.screenshot.capsLockEnabled"
+    private static let reverseScrollingEnabledKey = "mouseChordShot.scroll.reverseEnabled"
     private static let backSideButtonNumber: Int64 = 3
     private static let forwardSideButtonNumber: Int64 = 4
     private static let forwardComboDecisionDelaySeconds: TimeInterval = 0.07
@@ -127,8 +147,12 @@ final class AppModel: ObservableObject {
         self.capsLockScreenshotEnabled = defaults.object(
             forKey: Self.capsLockScreenshotEnabledKey
         ) as? Bool ?? true
+        self.reverseScrollingEnabled = defaults.object(
+            forKey: Self.reverseScrollingEnabledKey
+        ) as? Bool ?? false
 
         self.monitor.chordWindowSeconds = max(0.02, self.chordWindowMs / 1_000.0)
+        self.monitor.reverseScrollingEnabled = self.reverseScrollingEnabled
         self.monitor.onChord = { [weak self] in
             self?.handleChordTriggered()
         }
@@ -176,14 +200,14 @@ final class AppModel: ObservableObject {
         if !accessibilityTrusted {
             Permissions.openAccessibilitySettings()
             Permissions.revealAppInFinder()
-            lastActionMessage = "Add/enable Vibe Mouse in Accessibility (use + if not listed)."
+            lastActionMessage = "Add/enable \(appDisplayName) in Accessibility (use + if not listed)."
             applyMonitorState()
             return
         }
         if !screenRecordingGranted {
             Permissions.openScreenRecordingSettings()
             Permissions.revealAppInFinder()
-            lastActionMessage = "Add/enable Vibe Mouse in Screen & System Audio Recording (use + if not listed)."
+            lastActionMessage = "Add/enable \(appDisplayName) in Screen & System Audio Recording (use + if not listed)."
             applyMonitorState()
             return
         }
@@ -198,7 +222,7 @@ final class AppModel: ObservableObject {
         if !accessibilityTrusted {
             Permissions.openAccessibilitySettings()
             Permissions.revealAppInFinder()
-            lastActionMessage = "Add/enable Vibe Mouse in Accessibility (use + if not listed)."
+            lastActionMessage = "Add/enable \(appDisplayName) in Accessibility (use + if not listed)."
         } else {
             lastActionMessage = "Accessibility permission granted."
         }
@@ -211,7 +235,7 @@ final class AppModel: ObservableObject {
         refreshPermissions()
         if !screenRecordingGranted {
             Permissions.openScreenRecordingSettings()
-            lastActionMessage = "Enable Vibe Mouse in Screen & System Audio Recording (use + if it is not listed)."
+            lastActionMessage = "Enable \(appDisplayName) in Screen & System Audio Recording (use + if it is not listed)."
         } else {
             lastActionMessage = "Screen Recording permission granted."
         }
@@ -231,7 +255,7 @@ final class AppModel: ObservableObject {
 
     func revealInstalledAppInFinder() {
         Permissions.revealAppInFinder()
-        lastActionMessage = "Finder opened. Use + in macOS Settings and choose Vibe Mouse.app."
+        lastActionMessage = "Finder opened. Use + in macOS Settings and choose \(appDisplayName).app."
     }
 
     func triggerManualScreenshot() {
@@ -570,7 +594,7 @@ final class AppModel: ObservableObject {
             guard accessibilityTrusted else {
                 Permissions.openAccessibilitySettings()
                 Permissions.revealAppInFinder()
-                lastActionMessage = "Add/enable Vibe Mouse in Accessibility (use + if not listed)."
+                lastActionMessage = "Add/enable \(appDisplayName) in Accessibility (use + if not listed)."
                 applyMonitorState()
                 return false
             }
@@ -589,7 +613,7 @@ final class AppModel: ObservableObject {
             guard screenRecordingGranted else {
                 Permissions.openScreenRecordingSettings()
                 Permissions.revealAppInFinder()
-                lastActionMessage = "Add/enable Vibe Mouse in Screen & System Audio Recording (use + if not listed)."
+                lastActionMessage = "Add/enable \(appDisplayName) in Screen & System Audio Recording (use + if not listed)."
                 return false
             }
         }
@@ -638,6 +662,7 @@ final class AppModel: ObservableObject {
 
     private func monitorListeningStatusDescription() -> String {
         let screenshotSegment = "screenshot (\(screenshotTriggerLabel))"
+        let scrollSegment = reverseScrollingEnabled ? ", reversed scrolling" : ""
         if experimentalForwardGesturesEnabled {
             var forwardSegments: [String] = ["Forward drag screenshot capture"]
             if forwardButtonDictationEnabled {
@@ -646,25 +671,25 @@ final class AppModel: ObservableObject {
             if sideButtonPasteEnabled {
                 forwardSegments.append("Forward double-click paste")
             }
-            return "Listening for \(screenshotSegment) and \(forwardSegments.joined(separator: ", "))"
+            return "Listening for \(screenshotSegment) and \(forwardSegments.joined(separator: ", "))\(scrollSegment)"
         }
 
         let backSegment = "Back+Forward paste chord"
         let forwardSegment = "Forward button Dictation toggle"
 
         if sideButtonPasteEnabled && forwardButtonDictationEnabled {
-            return "Listening for \(screenshotSegment), \(backSegment), and \(forwardSegment)"
+            return "Listening for \(screenshotSegment), \(backSegment), and \(forwardSegment)\(scrollSegment)"
         }
 
         if sideButtonPasteEnabled {
-            return "Listening for \(screenshotSegment) and \(backSegment)"
+            return "Listening for \(screenshotSegment) and \(backSegment)\(scrollSegment)"
         }
 
         if forwardButtonDictationEnabled {
-            return "Listening for \(screenshotSegment) and \(forwardSegment)"
+            return "Listening for \(screenshotSegment) and \(forwardSegment)\(scrollSegment)"
         }
 
-        return "Listening for \(screenshotSegment)"
+        return "Listening for \(screenshotSegment)\(scrollSegment)"
     }
 
     private var screenshotTriggerLabel: String {

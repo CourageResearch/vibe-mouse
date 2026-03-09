@@ -64,6 +64,13 @@ struct SettingsView: View {
         )
     }
 
+    private var reverseScrollingBinding: Binding<Bool> {
+        Binding(
+            get: { model.reverseScrollingEnabled },
+            set: { model.reverseScrollingEnabled = $0 }
+        )
+    }
+
     private var captureLegendGesture: String {
         if model.experimentalForwardGesturesEnabled {
             return model.capsLockScreenshotEnabled
@@ -234,6 +241,26 @@ struct SettingsView: View {
                     }
                     Spacer()
                     Toggle("", isOn: capsLockScreenshotBinding)
+                        .labelsHidden()
+                        .toggleStyle(.switch)
+                }
+                .padding(14)
+                .roundedSurface()
+
+                HStack(spacing: 12) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Reverse scroll direction (Windows style)")
+                            .font(.headline)
+                        Text(
+                            model.reverseScrollingEnabled
+                                ? "Scroll direction is inverted globally while mouse shortcuts are enabled."
+                                : "Use macOS natural scrolling direction."
+                        )
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Toggle("", isOn: reverseScrollingBinding)
                         .labelsHidden()
                         .toggleStyle(.switch)
                 }

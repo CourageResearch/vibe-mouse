@@ -24,6 +24,7 @@ final class MouseChordMonitor {
     var onSideButtonUp: (@MainActor @Sendable (_ buttonNumber: Int64, _ location: CGPoint) -> Void)?
     var onSideButtonDragged: (@MainActor @Sendable (_ buttonNumber: Int64, _ location: CGPoint) -> Void)?
     var interceptedSideMouseButtons: Set<Int64> = []
+    var reverseScrollingEnabled = false
     var postReleaseTriggerDelaySeconds: TimeInterval = 0
     var minimumTriggerIntervalSeconds: TimeInterval = 0.20
     var releasePollIntervalSeconds: TimeInterval = 0.005
@@ -59,6 +60,12 @@ final class MouseChordMonitor {
     private let nxKeyStateUp: Int64 = 0xB
     // F4/search commonly arrives as one of these media/system key types.
     private let supportedF4SystemKeyTypes: Set<Int64> = [13, 25, 160]
+    private let verticalScrollDeltaFields: [CGEventField] = [
+        .scrollWheelEventDeltaAxis1,
+        .scrollWheelEventFixedPtDeltaAxis1,
+        .scrollWheelEventPointDeltaAxis1,
+        .scrollWheelEventAcceleratedDeltaAxis1,
+    ]
 
     func start() -> StartResult {
         if eventTap != nil {
@@ -71,6 +78,7 @@ final class MouseChordMonitor {
             | maskFor(.rightMouseUp)
             | maskFor(.leftMouseDragged)
             | maskFor(.rightMouseDragged)
+            | maskFor(.scrollWheel)
             | maskFor(.otherMouseDown)
             | maskFor(.otherMouseUp)
             | maskFor(.otherMouseDragged)
@@ -185,6 +193,9 @@ final class MouseChordMonitor {
         case .leftMouseDragged, .rightMouseDragged:
             return suppressUntilButtonsUp ? nil : Unmanaged.passUnretained(event)
 
+        case .scrollWheel:
+            return handleScrollWheel(event)
+
         case .otherMouseDown:
             return handleOtherMouseDown(event)
 
@@ -270,6 +281,69 @@ final class MouseChordMonitor {
         }
 
         return Unmanaged.passUnretained(event)
+    }
+
+    private func handleScrollWheel(_ event: CGEvent) -> Unmanaged<CGEvent>? {
+        guard reverseScrollingEnabled else {
+            return Unmanaged.passUnretained(event)
+        }
+
+        guard shouldApplyMouseWheelRemap(to: event) else {
+            return Unmanaged.passUnretained(event)
+        }
+
+        applyWindowsStyleVerticalScroll(on: event)
+        return Unmanaged.passUnretained(event)
+    }
+
+    private func shouldApplyMouseWheelRemap(to event: CGEvent) -> Bool {
+        // Trackpad (and similar gesture-based devices) usually reports continuous
+        // scrolling and/or phase information. Keep those untouched.
+        let isContinuous = event.getIntegerValueField(.scrollWheelEventIsContinuous) != 0
+        if isContinuous {
+            return false
+        }
+
+        let scrollPhase = event.getIntegerValueField(.scrollWheelEventScrollPhase)
+        if scrollPhase != 0 {
+            return false
+        }
+
+        let momentumPhase = event.getIntegerValueField(.scrollWheelEventMomentumPhase)
+        if momentumPhase != 0 {
+            return false
+        }
+
+        return true
+    }
+
+    private func applyWindowsStyleVerticalScroll(on event: CGEvent) {
+        let rawVerticalDelta = event.getIntegerValueField(.scrollWheelEventRawDeltaAxis1)
+        let targetSign: Int64
+        if rawVerticalDelta != 0 {
+            // Raw deltas follow physical wheel direction; matching them gives classic Windows behavior.
+            targetSign = rawVerticalDelta > 0 ? 1 : -1
+        } else {
+            // Fallback for devices/events that do not expose raw deltas.
+            let currentVertical = event.getIntegerValueField(.scrollWheelEventPointDeltaAxis1)
+            guard currentVertical != 0 else { return }
+            targetSign = currentVertical > 0 ? -1 : 1
+        }
+
+        for field in verticalScrollDeltaFields {
+            let value = event.getIntegerValueField(field)
+            guard value != 0 else { continue }
+
+            let magnitude: Int64
+            if value == Int64.min {
+                magnitude = Int64.max
+            } else {
+                magnitude = abs(value)
+            }
+
+            let adjusted = targetSign > 0 ? magnitude : -magnitude
+            event.setIntegerValueField(field, value: adjusted)
+        }
     }
 
     private func handleKeyDown(_ event: CGEvent) -> Unmanaged<CGEvent>? {

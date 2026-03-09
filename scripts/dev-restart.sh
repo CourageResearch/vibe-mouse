@@ -3,7 +3,15 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-APP_PATH="${VIBE_MOUSE_APP_PATH:-/Applications/Vibe Mouse.app}"
+if [[ -n "${VIBE_MOUSE_APP_PATH:-}" ]]; then
+  APP_PATH="$VIBE_MOUSE_APP_PATH"
+elif [[ -d "/Applications/Vibe Mouse.app" ]]; then
+  APP_PATH="/Applications/Vibe Mouse.app"
+elif [[ -d "/Applications/Mouse Chord Shot.app" ]]; then
+  APP_PATH="/Applications/Mouse Chord Shot.app"
+else
+  APP_PATH="/Applications/Vibe Mouse.app"
+fi
 APP_BIN="$APP_PATH/Contents/MacOS/mouse"
 APP_INFO_PLIST="$APP_PATH/Contents/Info.plist"
 BUILD_BIN="$REPO_ROOT/.build/debug/vibe-mouse"
@@ -11,6 +19,36 @@ SIGNING_DIR="$HOME/.vibe-mouse-signing"
 KEYCHAIN_PATH="$SIGNING_DIR/vibe-dev.keychain-db"
 KEYCHAIN_PASS_FILE="$SIGNING_DIR/keychain.pass"
 SIGNING_IDENTITY="Vibe Mouse Local Dev"
+APP_BUNDLE_ID=""
+
+ensure_keychain_in_search_list() {
+  local existing_keychains=()
+  while IFS= read -r keychain_line; do
+    keychain_line="${keychain_line#"${keychain_line%%[![:space:]]*}"}"
+    keychain_line="${keychain_line%\"}"
+    keychain_line="${keychain_line#\"}"
+    if [[ -n "$keychain_line" ]]; then
+      existing_keychains+=("$keychain_line")
+    fi
+  done < <(security list-keychains -d user)
+
+  local found=0
+  local keychain
+  for keychain in "${existing_keychains[@]}"; do
+    if [[ "$keychain" == "$KEYCHAIN_PATH" ]]; then
+      found=1
+      break
+    fi
+  done
+  if [[ "$found" -eq 0 ]]; then
+    security list-keychains -d user -s "$KEYCHAIN_PATH" "${existing_keychains[@]}"
+  fi
+}
+
+signing_identity_hash() {
+  security find-identity -v -p codesigning "$KEYCHAIN_PATH" \
+    | awk -v identity="$SIGNING_IDENTITY" '$0 ~ identity { print $2; exit }'
+}
 
 ensure_signing_identity() {
   mkdir -p "$SIGNING_DIR"
@@ -27,6 +65,7 @@ ensure_signing_identity() {
     security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH" >/dev/null
   fi
   security unlock-keychain -p "$keychain_pass" "$KEYCHAIN_PATH" >/dev/null
+  ensure_keychain_in_search_list
 
   if security find-identity -v -p codesigning "$KEYCHAIN_PATH" | grep -q "$SIGNING_IDENTITY"; then
     return
@@ -74,12 +113,14 @@ EOF
     -T /usr/bin/security >/dev/null
   security add-trusted-cert -d -k "$KEYCHAIN_PATH" -p codeSign "$tmp_dir/cert.pem" >/dev/null
   security set-key-partition-list -S apple-tool:,apple: -s -k "$keychain_pass" "$KEYCHAIN_PATH" >/dev/null
+  ensure_keychain_in_search_list
 }
 
 if [[ ! -d "$APP_PATH" ]]; then
   echo "error: $APP_PATH not found"
   exit 1
 fi
+APP_BUNDLE_ID="$(/usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$APP_INFO_PLIST" 2>/dev/null || true)"
 
 cd "$REPO_ROOT"
 ensure_signing_identity
@@ -100,10 +141,17 @@ else
 fi
 
 echo "Signing app..."
-codesign --force --deep --sign "$SIGNING_IDENTITY" --keychain "$KEYCHAIN_PATH" "$APP_PATH"
+SIGNING_HASH="$(signing_identity_hash)"
+if [[ -z "$SIGNING_HASH" ]]; then
+  echo "error: could not find signing identity '$SIGNING_IDENTITY' in $KEYCHAIN_PATH"
+  exit 1
+fi
+codesign --force --deep --sign "$SIGNING_HASH" --keychain "$KEYCHAIN_PATH" "$APP_PATH"
 
 echo "Restarting app..."
-osascript -e 'tell application id "com.courageresearch.vibemouse" to quit' >/dev/null 2>&1 || true
+if [[ -n "$APP_BUNDLE_ID" ]]; then
+  osascript -e "tell application id \"$APP_BUNDLE_ID\" to quit" >/dev/null 2>&1 || true
+fi
 sleep 1
 pkill -f "$APP_BIN" || true
 open "$APP_PATH"
