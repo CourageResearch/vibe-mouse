@@ -58,6 +58,28 @@ final class AppModel: ObservableObject {
         }
     }
 
+    @Published var mouseScrollSpeed: Double {
+        didSet {
+            let clamped = max(4, min(24, mouseScrollSpeed))
+            if clamped != mouseScrollSpeed {
+                mouseScrollSpeed = clamped
+                return
+            }
+            defaults.set(mouseScrollSpeed, forKey: Self.mouseScrollSpeedKey)
+            monitor.mouseScrollSpeed = mouseScrollSpeed
+        }
+    }
+
+    @Published var scrollEventLoggingEnabled: Bool {
+        didSet {
+            defaults.set(scrollEventLoggingEnabled, forKey: Self.scrollEventLoggingEnabledKey)
+            configureScrollDebugLoggingCallback()
+            lastActionMessage = scrollEventLoggingEnabled
+                ? "Scroll debug logging enabled (\(Self.scrollEventLogURL.path))."
+                : "Scroll debug logging disabled."
+        }
+    }
+
     @Published private(set) var accessibilityTrusted = false
     @Published private(set) var screenRecordingGranted = false
     @Published private(set) var monitorRunning = false
@@ -74,6 +96,10 @@ final class AppModel: ObservableObject {
 
     var dictationShortcutLabel: String {
         "Control+Option+Command+D"
+    }
+
+    var scrollEventLogPath: String {
+        Self.scrollEventLogURL.path
     }
 
     private var appDisplayName: String {
@@ -95,6 +121,15 @@ final class AppModel: ObservableObject {
     private static let experimentalForwardGesturesEnabledKey = "mouseChordShot.forward.experimentalGesturesEnabled"
     private static let capsLockScreenshotEnabledKey = "mouseChordShot.screenshot.capsLockEnabled"
     private static let reverseScrollingEnabledKey = "mouseChordShot.scroll.reverseEnabled"
+    private static let mouseScrollSpeedKey = "mouseChordShot.scroll.mouseSpeed"
+    private static let scrollEventLoggingEnabledKey = "mouseChordShot.scroll.debugLogEnabled"
+    private static let scrollEventLogURL = URL(fileURLWithPath: NSHomeDirectory())
+        .appendingPathComponent("vibe-mouse-scroll.log", isDirectory: false)
+    private static let scrollLogDateFormatter: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }()
     private static let backSideButtonNumber: Int64 = 3
     private static let forwardSideButtonNumber: Int64 = 4
     private static let forwardComboDecisionDelaySeconds: TimeInterval = 0.07
@@ -150,14 +185,22 @@ final class AppModel: ObservableObject {
         self.reverseScrollingEnabled = defaults.object(
             forKey: Self.reverseScrollingEnabledKey
         ) as? Bool ?? false
+        self.mouseScrollSpeed = defaults.object(
+            forKey: Self.mouseScrollSpeedKey
+        ) as? Double ?? 13
+        self.scrollEventLoggingEnabled = defaults.object(
+            forKey: Self.scrollEventLoggingEnabledKey
+        ) as? Bool ?? false
 
         self.monitor.chordWindowSeconds = max(0.02, self.chordWindowMs / 1_000.0)
         self.monitor.reverseScrollingEnabled = self.reverseScrollingEnabled
+        self.monitor.mouseScrollSpeed = self.mouseScrollSpeed
         self.monitor.onChord = { [weak self] in
             self?.handleChordTriggered()
         }
         configureKeyboardCaptureCallbacks()
         configureSideButtonCallback()
+        configureScrollDebugLoggingCallback()
 
         refreshPermissions()
         requestRequiredPermissionsOnFirstLaunch()
@@ -260,6 +303,32 @@ final class AppModel: ObservableObject {
 
     func triggerManualScreenshot() {
         runScreenshot()
+    }
+
+    func openScrollEventLogInFinder() {
+        let fileManager = FileManager.default
+        let logURL = Self.scrollEventLogURL
+        if fileManager.fileExists(atPath: logURL.path) {
+            NSWorkspace.shared.activateFileViewerSelecting([logURL])
+            lastActionMessage = "Opened scroll log in Finder."
+            return
+        }
+
+        NSWorkspace.shared.activateFileViewerSelecting([logURL.deletingLastPathComponent()])
+        lastActionMessage = "Scroll log file not created yet. Scroll once with logging enabled."
+    }
+
+    func clearScrollEventLog() {
+        do {
+            if FileManager.default.fileExists(atPath: Self.scrollEventLogURL.path) {
+                try FileManager.default.removeItem(at: Self.scrollEventLogURL)
+                lastActionMessage = "Cleared scroll debug log."
+            } else {
+                lastActionMessage = "Scroll debug log is already empty."
+            }
+        } catch {
+            lastActionMessage = "Could not clear scroll debug log: \(error.localizedDescription)"
+        }
     }
 
     private func requestRequiredPermissionsOnFirstLaunch() {
@@ -660,9 +729,61 @@ final class AppModel: ObservableObject {
         }
     }
 
+    private func configureScrollDebugLoggingCallback() {
+        guard scrollEventLoggingEnabled else {
+            monitor.onScrollDebugSample = nil
+            return
+        }
+
+        monitor.onScrollDebugSample = { [weak self] sample in
+            self?.appendScrollDebugSample(sample)
+        }
+    }
+
+    private func appendScrollDebugSample(_ sample: MouseChordMonitor.ScrollDebugSample) {
+        let timestamp = Self.scrollLogDateFormatter.string(from: Date(timeIntervalSince1970: sample.timestamp))
+        let line = [
+            "ts=\(timestamp)",
+            "reverse=\(sample.reverseEnabled ? 1 : 0)",
+            "eligible=\(sample.remapEligible ? 1 : 0)",
+            "remap=\(sample.remapApplied ? 1 : 0)",
+            "deviceInverted=\(sample.directionInvertedFromDevice ? 1 : 0)",
+            "precise=\(sample.hasPreciseDeltas ? 1 : 0)",
+            "phase=\(sample.phaseRaw)",
+            "momentum=\(sample.momentumPhaseRaw)",
+            "count=\(sample.scrollCount)",
+            "instant=\(sample.instantMouser)",
+            "continuous=\(sample.isContinuous)",
+            "delta=\(sample.deltaAxis1)",
+            "fixed=\(sample.fixedPtDeltaAxis1)",
+            "point=\(sample.pointDeltaAxis1)",
+            "accel=\(sample.acceleratedDeltaAxis1)",
+            "raw=\(sample.rawDeltaAxis1)",
+        ].joined(separator: " ")
+
+        let fileManager = FileManager.default
+        let logURL = Self.scrollEventLogURL
+        let header = "scroll-debug-v1\n"
+
+        if !fileManager.fileExists(atPath: logURL.path) {
+            try? header.write(to: logURL, atomically: true, encoding: .utf8)
+        }
+
+        guard let data = (line + "\n").data(using: .utf8) else { return }
+        do {
+            let handle = try FileHandle(forWritingTo: logURL)
+            defer { try? handle.close() }
+            try handle.seekToEnd()
+            try handle.write(contentsOf: data)
+        } catch {
+            lastActionMessage = "Could not write scroll debug log: \(error.localizedDescription)"
+        }
+    }
+
     private func monitorListeningStatusDescription() -> String {
         let screenshotSegment = "screenshot (\(screenshotTriggerLabel))"
         let scrollSegment = reverseScrollingEnabled ? ", reversed scrolling" : ""
+        let debugSegment = scrollEventLoggingEnabled ? ", scroll debug logging" : ""
         if experimentalForwardGesturesEnabled {
             var forwardSegments: [String] = ["Forward drag screenshot capture"]
             if forwardButtonDictationEnabled {
@@ -671,25 +792,25 @@ final class AppModel: ObservableObject {
             if sideButtonPasteEnabled {
                 forwardSegments.append("Forward double-click paste")
             }
-            return "Listening for \(screenshotSegment) and \(forwardSegments.joined(separator: ", "))\(scrollSegment)"
+            return "Listening for \(screenshotSegment) and \(forwardSegments.joined(separator: ", "))\(scrollSegment)\(debugSegment)"
         }
 
         let backSegment = "Back+Forward paste chord"
         let forwardSegment = "Forward button Dictation toggle"
 
         if sideButtonPasteEnabled && forwardButtonDictationEnabled {
-            return "Listening for \(screenshotSegment), \(backSegment), and \(forwardSegment)\(scrollSegment)"
+            return "Listening for \(screenshotSegment), \(backSegment), and \(forwardSegment)\(scrollSegment)\(debugSegment)"
         }
 
         if sideButtonPasteEnabled {
-            return "Listening for \(screenshotSegment) and \(backSegment)\(scrollSegment)"
+            return "Listening for \(screenshotSegment) and \(backSegment)\(scrollSegment)\(debugSegment)"
         }
 
         if forwardButtonDictationEnabled {
-            return "Listening for \(screenshotSegment) and \(forwardSegment)\(scrollSegment)"
+            return "Listening for \(screenshotSegment) and \(forwardSegment)\(scrollSegment)\(debugSegment)"
         }
 
-        return "Listening for \(screenshotSegment)\(scrollSegment)"
+        return "Listening for \(screenshotSegment)\(scrollSegment)\(debugSegment)"
     }
 
     private var screenshotTriggerLabel: String {
@@ -742,9 +863,15 @@ final class AppModel: ObservableObject {
             return false
         }
 
-        return CGEventSource.buttonState(
+        let cgState = CGEventSource.buttonState(
             .combinedSessionState,
             button: backButton
         )
+        let nsMask = NSEvent.pressedMouseButtons
+        let nsState = (nsMask & (1 << Int(Self.backSideButtonNumber))) != 0
+
+        // Use both APIs to avoid false positives that can steal Forward clicks
+        // into paste-combo handling instead of Dictation.
+        return cgState && nsState
     }
 }

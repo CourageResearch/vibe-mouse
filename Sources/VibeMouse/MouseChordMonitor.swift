@@ -6,6 +6,25 @@ import IOKit
 import IOKit.hidsystem
 
 final class MouseChordMonitor {
+    struct ScrollDebugSample: Sendable {
+        let timestamp: TimeInterval
+        let reverseEnabled: Bool
+        let remapEligible: Bool
+        let remapApplied: Bool
+        let directionInvertedFromDevice: Bool
+        let hasPreciseDeltas: Bool
+        let phaseRaw: UInt
+        let momentumPhaseRaw: UInt
+        let scrollCount: Int64
+        let instantMouser: Int64
+        let isContinuous: Int64
+        let deltaAxis1: Int64
+        let fixedPtDeltaAxis1: Int64
+        let pointDeltaAxis1: Int64
+        let acceleratedDeltaAxis1: Int64
+        let rawDeltaAxis1: Int64
+    }
+
     enum StartResult {
         case started
         case failed(String)
@@ -23,8 +42,10 @@ final class MouseChordMonitor {
     var onSideButtonDown: (@MainActor @Sendable (_ buttonNumber: Int64) -> Void)?
     var onSideButtonUp: (@MainActor @Sendable (_ buttonNumber: Int64, _ location: CGPoint) -> Void)?
     var onSideButtonDragged: (@MainActor @Sendable (_ buttonNumber: Int64, _ location: CGPoint) -> Void)?
+    var onScrollDebugSample: (@MainActor @Sendable (_ sample: ScrollDebugSample) -> Void)?
     var interceptedSideMouseButtons: Set<Int64> = []
     var reverseScrollingEnabled = false
+    var mouseScrollSpeed: Double = 13
     var postReleaseTriggerDelaySeconds: TimeInterval = 0
     var minimumTriggerIntervalSeconds: TimeInterval = 0.20
     var releasePollIntervalSeconds: TimeInterval = 0.005
@@ -60,12 +81,7 @@ final class MouseChordMonitor {
     private let nxKeyStateUp: Int64 = 0xB
     // F4/search commonly arrives as one of these media/system key types.
     private let supportedF4SystemKeyTypes: Set<Int64> = [13, 25, 160]
-    private let verticalScrollDeltaFields: [CGEventField] = [
-        .scrollWheelEventDeltaAxis1,
-        .scrollWheelEventFixedPtDeltaAxis1,
-        .scrollWheelEventPointDeltaAxis1,
-        .scrollWheelEventAcceleratedDeltaAxis1,
-    ]
+    private let fixedPointScalePerPoint: Int64 = 6_554
 
     func start() -> StartResult {
         if eventTap != nil {
@@ -284,33 +300,37 @@ final class MouseChordMonitor {
     }
 
     private func handleScrollWheel(_ event: CGEvent) -> Unmanaged<CGEvent>? {
-        guard reverseScrollingEnabled else {
-            return Unmanaged.passUnretained(event)
+        let remapEligible = reverseScrollingEnabled && shouldApplyMouseWheelRemap(to: event)
+        let shouldRemap = remapEligible
+        if onScrollDebugSample != nil, remapEligible {
+            dispatchScrollDebugSample(
+                buildScrollDebugSample(
+                    from: event,
+                    remapEligible: remapEligible,
+                    remapApplied: shouldRemap
+                )
+            )
         }
 
-        guard shouldApplyMouseWheelRemap(to: event) else {
-            return Unmanaged.passUnretained(event)
+        if shouldRemap {
+            applyWindowsStyleVerticalScroll(on: event)
         }
-
-        applyWindowsStyleVerticalScroll(on: event)
         return Unmanaged.passUnretained(event)
     }
 
     private func shouldApplyMouseWheelRemap(to event: CGEvent) -> Bool {
-        // Trackpad (and similar gesture-based devices) usually reports continuous
-        // scrolling and/or phase information. Keep those untouched.
-        let isContinuous = event.getIntegerValueField(.scrollWheelEventIsContinuous) != 0
-        if isContinuous {
+        guard let nsEvent = NSEvent(cgEvent: event) else {
+            let isContinuous = event.getIntegerValueField(.scrollWheelEventIsContinuous) != 0
+            return !isContinuous
+        }
+
+        // Leave trackpad-class events completely untouched.
+        if nsEvent.hasPreciseScrollingDeltas {
             return false
         }
 
-        let scrollPhase = event.getIntegerValueField(.scrollWheelEventScrollPhase)
-        if scrollPhase != 0 {
-            return false
-        }
-
-        let momentumPhase = event.getIntegerValueField(.scrollWheelEventMomentumPhase)
-        if momentumPhase != 0 {
+        // Defensive check: if phase/momentum is present, treat as gesture-based.
+        if nsEvent.phase.rawValue != 0 || nsEvent.momentumPhase.rawValue != 0 {
             return false
         }
 
@@ -318,31 +338,69 @@ final class MouseChordMonitor {
     }
 
     private func applyWindowsStyleVerticalScroll(on event: CGEvent) {
-        let rawVerticalDelta = event.getIntegerValueField(.scrollWheelEventRawDeltaAxis1)
-        let targetSign: Int64
-        if rawVerticalDelta != 0 {
-            // Raw deltas follow physical wheel direction; matching them gives classic Windows behavior.
-            targetSign = rawVerticalDelta > 0 ? 1 : -1
-        } else {
-            // Fallback for devices/events that do not expose raw deltas.
-            let currentVertical = event.getIntegerValueField(.scrollWheelEventPointDeltaAxis1)
-            guard currentVertical != 0 else { return }
-            targetSign = currentVertical > 0 ? -1 : 1
+        let sourceValues: [Int64] = [
+            event.getIntegerValueField(.scrollWheelEventPointDeltaAxis1),
+            event.getIntegerValueField(.scrollWheelEventDeltaAxis1),
+            event.getIntegerValueField(.scrollWheelEventFixedPtDeltaAxis1),
+            event.getIntegerValueField(.scrollWheelEventRawDeltaAxis1),
+        ]
+        guard var direction = sourceValues.first(where: { $0 != 0 }) else { return }
+        direction = direction > 0 ? 1 : -1
+
+        // If macOS reports direction as inverted-from-device, flip to match
+        // classic Windows wheel semantics (wheel toward user -> page down).
+        if shouldInvertForWindowsStyle(event) {
+            direction = -direction
         }
 
-        for field in verticalScrollDeltaFields {
-            let value = event.getIntegerValueField(field)
-            guard value != 0 else { continue }
+        let clampedSpeed = max(4.0, min(24.0, mouseScrollSpeed))
+        let pointMagnitude = Int64(clampedSpeed.rounded())
+        let fixedPointMagnitude = pointMagnitude * fixedPointScalePerPoint
 
-            let magnitude: Int64
-            if value == Int64.min {
-                magnitude = Int64.max
-            } else {
-                magnitude = abs(value)
-            }
+        event.setIntegerValueField(.scrollWheelEventDeltaAxis1, value: direction)
+        event.setIntegerValueField(.scrollWheelEventPointDeltaAxis1, value: direction * pointMagnitude)
+        event.setIntegerValueField(.scrollWheelEventFixedPtDeltaAxis1, value: direction * fixedPointMagnitude)
+        event.setIntegerValueField(.scrollWheelEventAcceleratedDeltaAxis1, value: direction)
+        event.setIntegerValueField(.scrollWheelEventRawDeltaAxis1, value: direction)
+    }
 
-            let adjusted = targetSign > 0 ? magnitude : -magnitude
-            event.setIntegerValueField(field, value: adjusted)
+    private func shouldInvertForWindowsStyle(_ event: CGEvent) -> Bool {
+        guard let nsEvent = NSEvent(cgEvent: event) else {
+            return true
+        }
+        return nsEvent.isDirectionInvertedFromDevice
+    }
+
+    private func buildScrollDebugSample(
+        from event: CGEvent,
+        remapEligible: Bool,
+        remapApplied: Bool
+    ) -> ScrollDebugSample {
+        let nsEvent = NSEvent(cgEvent: event)
+        return ScrollDebugSample(
+            timestamp: Date().timeIntervalSince1970,
+            reverseEnabled: reverseScrollingEnabled,
+            remapEligible: remapEligible,
+            remapApplied: remapApplied,
+            directionInvertedFromDevice: nsEvent?.isDirectionInvertedFromDevice ?? false,
+            hasPreciseDeltas: nsEvent?.hasPreciseScrollingDeltas ?? false,
+            phaseRaw: nsEvent?.phase.rawValue ?? 0,
+            momentumPhaseRaw: nsEvent?.momentumPhase.rawValue ?? 0,
+            scrollCount: event.getIntegerValueField(.scrollWheelEventScrollCount),
+            instantMouser: event.getIntegerValueField(.scrollWheelEventInstantMouser),
+            isContinuous: event.getIntegerValueField(.scrollWheelEventIsContinuous),
+            deltaAxis1: event.getIntegerValueField(.scrollWheelEventDeltaAxis1),
+            fixedPtDeltaAxis1: event.getIntegerValueField(.scrollWheelEventFixedPtDeltaAxis1),
+            pointDeltaAxis1: event.getIntegerValueField(.scrollWheelEventPointDeltaAxis1),
+            acceleratedDeltaAxis1: event.getIntegerValueField(.scrollWheelEventAcceleratedDeltaAxis1),
+            rawDeltaAxis1: event.getIntegerValueField(.scrollWheelEventRawDeltaAxis1)
+        )
+    }
+
+    private func dispatchScrollDebugSample(_ sample: ScrollDebugSample) {
+        let callback = onScrollDebugSample
+        Task { @MainActor in
+            callback?(sample)
         }
     }
 

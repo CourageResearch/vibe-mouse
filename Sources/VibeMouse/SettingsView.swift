@@ -71,6 +71,20 @@ struct SettingsView: View {
         )
     }
 
+    private var mouseScrollSpeedBinding: Binding<Double> {
+        Binding(
+            get: { model.mouseScrollSpeed },
+            set: { model.mouseScrollSpeed = $0 }
+        )
+    }
+
+    private var scrollEventLoggingBinding: Binding<Bool> {
+        Binding(
+            get: { model.scrollEventLoggingEnabled },
+            set: { model.scrollEventLoggingEnabled = $0 }
+        )
+    }
+
     private var captureLegendGesture: String {
         if model.experimentalForwardGesturesEnabled {
             return model.capsLockScreenshotEnabled
@@ -267,6 +281,37 @@ struct SettingsView: View {
                 .padding(14)
                 .roundedSurface()
 
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack(alignment: .firstTextBaseline, spacing: 10) {
+                        Text("Mouse scroll speed")
+                            .font(.headline)
+                        Spacer()
+                        Text("\(Int(model.mouseScrollSpeed.rounded()))")
+                            .font(.system(.body, design: .monospaced))
+                            .fontWeight(.semibold)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 4)
+                            .background(Color.primary.opacity(0.06))
+                            .clipShape(Capsule())
+                    }
+
+                    Slider(value: mouseScrollSpeedBinding, in: 4...24, step: 1)
+                        .tint(.accentColor)
+
+                    HStack {
+                        Text("Slower")
+                        Spacer()
+                        Text("Applies to mouse wheel only")
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        Text("Faster")
+                    }
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                }
+                .padding(14)
+                .roundedSurface()
+
                 HStack(spacing: 12) {
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Enable experimental Forward gestures")
@@ -319,6 +364,41 @@ struct SettingsView: View {
                     Toggle("", isOn: forwardButtonDictationBinding)
                         .labelsHidden()
                         .toggleStyle(.switch)
+                }
+                .padding(14)
+                .roundedSurface()
+
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack(spacing: 12) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Log scroll events (debug)")
+                                .font(.headline)
+                            Text("Writes per-event scroll fields to a local file so you can share diagnostics.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Toggle("", isOn: scrollEventLoggingBinding)
+                            .labelsHidden()
+                            .toggleStyle(.switch)
+                    }
+
+                    Text(model.scrollEventLogPath)
+                        .font(.system(.caption, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+
+                    HStack(spacing: 10) {
+                        Button("Open Log in Finder") {
+                            model.openScrollEventLogInFinder()
+                        }
+                        .buttonStyle(SecondaryCapsuleButtonStyle())
+
+                        Button("Clear Log") {
+                            model.clearScrollEventLog()
+                        }
+                        .buttonStyle(SecondaryCapsuleButtonStyle())
+                    }
                 }
                 .padding(14)
                 .roundedSurface()
