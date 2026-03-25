@@ -76,57 +76,25 @@ struct MenuPanelView: View {
     }
 
     private var shortcutSummaryText: String {
-        if model.experimentalForwardGesturesEnabled {
-            var segments = ["\(screenshotKeyboardSummaryGesture) screenshot", "Forward drag screenshot"]
-            if model.forwardButtonDictationEnabled {
-                segments.append("Forward single-click Dictation")
-            }
-            if model.sideButtonPasteEnabled {
-                segments.append("Forward double-click paste")
-            }
-            return segments.joined(separator: ", ")
-        }
-
-        if model.sideButtonPasteEnabled && model.forwardButtonDictationEnabled {
-            return "\(screenshotKeyboardCompactSummaryGesture) screenshot, Back+Forward paste, Forward Dictation"
-        }
-
-        if model.sideButtonPasteEnabled {
-            return "\(screenshotKeyboardCompactSummaryGesture) screenshot, Back+Forward paste"
-        }
-
         if model.forwardButtonDictationEnabled {
-            return "\(screenshotKeyboardCompactSummaryGesture) screenshot, Forward Dictation"
+            if model.screenshotPasteStartsDictationActive {
+                return "\(screenshotKeyboardCompactSummaryGesture) screenshot, next-click paste, Forward Dictation, screenshot paste can auto-start Dictation"
+            }
+            return "\(screenshotKeyboardCompactSummaryGesture) screenshot, next-click paste, Forward Dictation"
         }
 
-        return "\(screenshotKeyboardCompactSummaryGesture) screenshot"
+        return "\(screenshotKeyboardCompactSummaryGesture) screenshot, next-click paste"
     }
 
     private var listeningSummaryText: String {
-        if model.experimentalForwardGesturesEnabled {
-            var segments = ["Forward drag screenshot selection"]
-            if model.forwardButtonDictationEnabled {
-                segments.append("Forward single-click Dictation toggle")
-            }
-            if model.sideButtonPasteEnabled {
-                segments.append("Forward double-click paste")
-            }
-            return "Listening for \(screenshotListeningGesture) screenshot, and \(segments.joined(separator: ", "))."
-        }
-
-        if model.sideButtonPasteEnabled && model.forwardButtonDictationEnabled {
-            return "Listening for \(screenshotListeningGesture) screenshot, Back+Forward paste chord, and Forward Dictation toggle."
-        }
-
-        if model.sideButtonPasteEnabled {
-            return "Listening for \(screenshotListeningGesture) screenshot, and Back+Forward paste chord."
-        }
-
         if model.forwardButtonDictationEnabled {
-            return "Listening for \(screenshotListeningGesture) screenshot, and Forward Dictation toggle."
+            if model.screenshotPasteStartsDictationActive {
+                return "Listening for \(screenshotListeningGesture) screenshot, next-click paste after capture, Forward Dictation toggle, and screenshot auto-start Dictation that stops on the following click."
+            }
+            return "Listening for \(screenshotListeningGesture) screenshot, next-click paste after capture, and Forward Dictation toggle."
         }
 
-        return "Listening for \(screenshotListeningGesture) screenshot triggers."
+        return "Listening for \(screenshotListeningGesture) screenshot triggers and next-click paste after capture."
     }
 
     private var screenshotKeyboardSummaryGesture: String {

@@ -34,6 +34,7 @@ final class MouseChordMonitor {
     var onChord: (@MainActor @Sendable () -> Void)?
     var onF4KeyDown: (@MainActor @Sendable () -> Void)?
     var onCapsLockKeyDown: (@MainActor @Sendable () -> Void)?
+    var onEscapeKeyDown: (@MainActor @Sendable () -> Void)?
     var disableCapsLockLockingWhileIntercepting = false {
         didSet {
             applyCapsLockLockingModeIfNeeded()
@@ -42,7 +43,9 @@ final class MouseChordMonitor {
     var onSideButtonDown: (@MainActor @Sendable (_ buttonNumber: Int64) -> Void)?
     var onSideButtonUp: (@MainActor @Sendable (_ buttonNumber: Int64, _ location: CGPoint) -> Void)?
     var onSideButtonDragged: (@MainActor @Sendable (_ buttonNumber: Int64, _ location: CGPoint) -> Void)?
+    var onPrimaryClickUp: (@MainActor @Sendable (_ location: CGPoint) -> Void)?
     var onScrollDebugSample: (@MainActor @Sendable (_ sample: ScrollDebugSample) -> Void)?
+    var shouldSuppressKeyEvent: ((_ keyCode: Int64, _ type: CGEventType) -> Bool)?
     var interceptedSideMouseButtons: Set<Int64> = []
     var reverseScrollingEnabled = false
     var mouseScrollSpeed: Double = 13
@@ -198,6 +201,9 @@ final class MouseChordMonitor {
             leftDown = false
             let shouldSuppress = suppressUntilButtonsUp
             resetIfIdle()
+            if !shouldSuppress {
+                dispatchPrimaryClickUpTrigger(location: event.location)
+            }
             return shouldSuppress ? nil : Unmanaged.passUnretained(event)
 
         case .rightMouseUp:
@@ -353,7 +359,7 @@ final class MouseChordMonitor {
             direction = -direction
         }
 
-        let clampedSpeed = max(4.0, min(24.0, mouseScrollSpeed))
+        let clampedSpeed = max(4.0, min(36.0, mouseScrollSpeed))
         let pointMagnitude = Int64(clampedSpeed.rounded())
         let fixedPointMagnitude = pointMagnitude * fixedPointScalePerPoint
 
@@ -408,6 +414,10 @@ final class MouseChordMonitor {
         let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
         let isAutoRepeat = event.getIntegerValueField(.keyboardEventAutorepeat) != 0
 
+        if shouldSuppressKeyEvent?(keyCode, .keyDown) == true {
+            return nil
+        }
+
         if keyCode == Int64(kVK_CapsLock) {
             guard onCapsLockKeyDown != nil else {
                 return Unmanaged.passUnretained(event)
@@ -416,6 +426,17 @@ final class MouseChordMonitor {
             dispatchCapsLockTrigger()
             forceCapsLockOff()
             return nil
+        }
+
+        if keyCode == Int64(kVK_Escape) {
+            guard onEscapeKeyDown != nil else {
+                return Unmanaged.passUnretained(event)
+            }
+
+            if !isAutoRepeat {
+                dispatchEscapeTrigger()
+            }
+            return Unmanaged.passUnretained(event)
         }
 
         if keyCode == Int64(kVK_F4) {
@@ -438,6 +459,10 @@ final class MouseChordMonitor {
 
     private func handleKeyUp(_ event: CGEvent) -> Unmanaged<CGEvent>? {
         let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
+
+        if shouldSuppressKeyEvent?(keyCode, .keyUp) == true {
+            return nil
+        }
 
         if keyCode == Int64(kVK_CapsLock) {
             guard onCapsLockKeyDown != nil else {
@@ -553,10 +578,15 @@ final class MouseChordMonitor {
 
     private func handleFallbackObservedEvent(_ event: NSEvent) {
         let hasF4Handler = onF4KeyDown != nil
-        guard hasF4Handler else { return }
+        let hasEscapeHandler = onEscapeKeyDown != nil
+        guard hasF4Handler || hasEscapeHandler else { return }
 
         if event.type == .keyDown {
             guard !event.isARepeat else { return }
+            if event.keyCode == UInt16(kVK_Escape), hasEscapeHandler {
+                dispatchEscapeTrigger()
+                return
+            }
             if event.keyCode == UInt16(kVK_F4), hasF4Handler {
                 dispatchF4Trigger()
                 return
@@ -672,6 +702,10 @@ final class MouseChordMonitor {
         dispatchKeyboardTrigger(onCapsLockKeyDown)
     }
 
+    private func dispatchEscapeTrigger() {
+        dispatchKeyboardTrigger(onEscapeKeyDown)
+    }
+
     private func forceCapsLockOff() {
         let matching = IOServiceMatching(kIOHIDSystemClass)
         let service = IOServiceGetMatchingService(kIOMainPortDefault, matching)
@@ -778,6 +812,13 @@ final class MouseChordMonitor {
         let callback = onSideButtonDragged
         Task { @MainActor in
             callback?(buttonNumber, location)
+        }
+    }
+
+    private func dispatchPrimaryClickUpTrigger(location: CGPoint) {
+        let callback = onPrimaryClickUp
+        Task { @MainActor in
+            callback?(location)
         }
     }
 

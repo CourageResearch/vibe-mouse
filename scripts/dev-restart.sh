@@ -140,6 +140,13 @@ else
   /usr/libexec/PlistBuddy -c "Add :CFBundleVersion string $BUILD_NUMBER" "$APP_INFO_PLIST"
 fi
 
+echo "Ensuring microphone usage description..."
+if /usr/libexec/PlistBuddy -c "Print :NSMicrophoneUsageDescription" "$APP_INFO_PLIST" >/dev/null 2>&1; then
+  /usr/libexec/PlistBuddy -c "Set :NSMicrophoneUsageDescription Vibe Mouse uses the microphone only when you trigger dictation so it can transcribe your speech." "$APP_INFO_PLIST"
+else
+  /usr/libexec/PlistBuddy -c "Add :NSMicrophoneUsageDescription string Vibe Mouse uses the microphone only when you trigger dictation so it can transcribe your speech." "$APP_INFO_PLIST"
+fi
+
 echo "Signing app..."
 SIGNING_HASH="$(signing_identity_hash)"
 if [[ -z "$SIGNING_HASH" ]]; then

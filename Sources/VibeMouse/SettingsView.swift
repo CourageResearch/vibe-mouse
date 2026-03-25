@@ -36,13 +36,6 @@ struct SettingsView: View {
         )
     }
 
-    private var sideButtonPasteBinding: Binding<Bool> {
-        Binding(
-            get: { model.sideButtonPasteEnabled },
-            set: { model.sideButtonPasteEnabled = $0 }
-        )
-    }
-
     private var forwardButtonDictationBinding: Binding<Bool> {
         Binding(
             get: { model.forwardButtonDictationEnabled },
@@ -50,10 +43,52 @@ struct SettingsView: View {
         )
     }
 
-    private var experimentalForwardGesturesBinding: Binding<Bool> {
+    private var screenshotPasteStartsDictationBinding: Binding<Bool> {
         Binding(
-            get: { model.experimentalForwardGesturesEnabled },
-            set: { model.experimentalForwardGesturesEnabled = $0 }
+            get: { model.screenshotPasteStartsDictationEnabled },
+            set: { model.screenshotPasteStartsDictationEnabled = $0 }
+        )
+    }
+
+    private var dictationBackendBinding: Binding<AppModel.DictationBackend> {
+        Binding(
+            get: { model.dictationBackend },
+            set: { model.dictationBackend = $0 }
+        )
+    }
+
+    private var whisperModelPresetBinding: Binding<WhisperDictationService.ModelPreset> {
+        Binding(
+            get: { model.whisperModelPreset },
+            set: { model.whisperModelPreset = $0 }
+        )
+    }
+
+    private var whisperExecutablePathBinding: Binding<String> {
+        Binding(
+            get: { model.whisperExecutablePath },
+            set: { model.whisperExecutablePath = $0 }
+        )
+    }
+
+    private var whisperModelDirectoryPathBinding: Binding<String> {
+        Binding(
+            get: { model.whisperModelDirectoryPath },
+            set: { model.whisperModelDirectoryPath = $0 }
+        )
+    }
+
+    private var whisperMicrophoneSelectionBinding: Binding<String> {
+        Binding(
+            get: { model.whisperMicrophoneSelectionID },
+            set: { model.whisperMicrophoneSelectionID = $0 }
+        )
+    }
+
+    private var whisperDebugRecordingsBinding: Binding<Bool> {
+        Binding(
+            get: { model.whisperDebugRecordingsEnabled },
+            set: { model.whisperDebugRecordingsEnabled = $0 }
         )
     }
 
@@ -86,40 +121,35 @@ struct SettingsView: View {
     }
 
     private var captureLegendGesture: String {
-        if model.experimentalForwardGesturesEnabled {
-            return model.capsLockScreenshotEnabled
-                ? "Caps Lock, Left + Right, or Forward Drag"
-                : "Left + Right or Forward Drag"
-        }
         return model.capsLockScreenshotEnabled
             ? "Caps Lock or Left + Right"
             : "Left + Right"
     }
 
     private var captureLegendDetail: String {
-        model.experimentalForwardGesturesEnabled
-            ? "Capture via standard shortcuts or Forward drag-select"
-            : "Take screenshot to clipboard"
+        "Take screenshot, then click to paste"
     }
 
     private var pasteLegendGesture: String {
-        model.experimentalForwardGesturesEnabled ? "Forward Double Click" : "Back + Forward"
+        "Next Click"
     }
 
     private var pasteLegendDetail: String {
-        guard model.sideButtonPasteEnabled else { return "Enable in Behavior" }
-        return model.experimentalForwardGesturesEnabled
-            ? "Paste clipboard (Cmd+V)"
-            : "Paste clipboard (Cmd+V chord)"
+        model.screenshotPasteStartsDictationActive
+            ? "After a screenshot, click the target field to paste it and begin dictation. The following left click stops dictation."
+            : "After a screenshot, click the target field to paste it."
     }
 
     private var dictationLegendGesture: String {
-        model.experimentalForwardGesturesEnabled ? "Forward Single Click" : "Forward Button"
+        "Forward Button"
     }
 
     private var dictationLegendDetail: String {
         guard model.forwardButtonDictationEnabled else { return "Enable in Behavior" }
-        return "Toggle macOS Dictation (\(model.dictationShortcutLabel)); sends Return when Dictation stops."
+        if model.isAppleDictationBackendSelected {
+            return "Toggle macOS Dictation (\(model.dictationShortcutLabel)); sends Return when Dictation stops."
+        }
+        return "Toggle whisper.cpp recording. Press once to start, press again to transcribe and paste."
     }
 
     private var headerCard: some View {
@@ -141,9 +171,9 @@ struct SettingsView: View {
                 }
 
                 Text(
-                    model.experimentalForwardGesturesEnabled
-                        ? "Experimental mode: Forward single-click Dictation, Forward drag screenshot, and Forward double-click paste."
-                        : "Global shortcuts: \(keyboardCaptureSummary) capture, Back+Forward paste chord, and Forward-button Dictation toggle."
+                    model.screenshotPasteStartsDictationActive
+                        ? "Global shortcuts: \(keyboardCaptureSummary) capture, click the target field to paste and start dictation, then click once more to stop."
+                        : "Global shortcuts: \(keyboardCaptureSummary) capture, click the target field to paste, and use Forward for Dictation when you want it."
                 )
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
@@ -167,8 +197,7 @@ struct SettingsView: View {
                                 title: "Paste",
                                 gesture: pasteLegendGesture,
                                 detail: pasteLegendDetail,
-                                tint: model.sideButtonPasteEnabled ? .green : .gray,
-                                enabled: model.sideButtonPasteEnabled
+                                tint: .green
                             )
                             ShortcutLegendItem(
                                 systemImage: "mic.fill",
@@ -193,8 +222,7 @@ struct SettingsView: View {
                                 title: "Paste",
                                 gesture: pasteLegendGesture,
                                 detail: pasteLegendDetail,
-                                tint: model.sideButtonPasteEnabled ? .green : .gray,
-                                enabled: model.sideButtonPasteEnabled
+                                tint: .green
                             )
                             ShortcutLegendItem(
                                 systemImage: "mic.fill",
@@ -226,9 +254,9 @@ struct SettingsView: View {
                         Text("Enable mouse shortcuts")
                             .font(.headline)
                         Text(
-                            model.experimentalForwardGesturesEnabled
-                                ? "When enabled, experimental Forward gestures are active: single-click Dictation, drag-select screenshot, and double-click paste."
-                                : "When enabled, the app listens globally for screenshot capture (\(screenshotListeningLegend)), optional Back+Forward paste chord, and optional Forward-button Dictation toggle."
+                            model.screenshotPasteStartsDictationActive
+                                ? "When enabled, the app listens globally for screenshot capture (\(screenshotListeningLegend)), click-to-paste after capture, and optional dictation auto-start with stop-on-next-click."
+                                : "When enabled, the app listens globally for screenshot capture (\(screenshotListeningLegend)), click-to-paste after capture, and optional Forward-button Dictation."
                         )
                             .font(.caption)
                             .foregroundStyle(.secondary)
@@ -295,7 +323,7 @@ struct SettingsView: View {
                             .clipShape(Capsule())
                     }
 
-                    Slider(value: mouseScrollSpeedBinding, in: 4...24, step: 1)
+                    Slider(value: mouseScrollSpeedBinding, in: 4...36, step: 1)
                         .tint(.accentColor)
 
                     HStack {
@@ -314,48 +342,12 @@ struct SettingsView: View {
 
                 HStack(spacing: 12) {
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("Enable experimental Forward gestures")
-                            .font(.headline)
-                        Text("Preview mode: single-click Forward toggles Dictation, drag Forward selects screenshot area on release, and double-click Forward pastes clipboard.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                    Spacer()
-                    Toggle("", isOn: experimentalForwardGesturesBinding)
-                        .labelsHidden()
-                        .toggleStyle(.switch)
-                }
-                .padding(14)
-                .roundedSurface()
-
-                HStack(spacing: 12) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(model.experimentalForwardGesturesEnabled ? "Enable Forward double-click paste" : "Enable Back+Forward paste")
+                        Text("Enable Forward-button Dictation")
                             .font(.headline)
                         Text(
-                            model.experimentalForwardGesturesEnabled
-                                ? "Use Forward double-click to send Cmd+V."
-                                : "Press Back and Forward side buttons together to send Cmd+V. Back alone is passed through to apps."
-                        )
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                    Spacer()
-                    Toggle("", isOn: sideButtonPasteBinding)
-                        .labelsHidden()
-                        .toggleStyle(.switch)
-                }
-                .padding(14)
-                .roundedSurface()
-
-                HStack(spacing: 12) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(model.experimentalForwardGesturesEnabled ? "Enable Forward single-click Dictation" : "Enable Forward-button Dictation")
-                            .font(.headline)
-                        Text(
-                            model.experimentalForwardGesturesEnabled
-                                ? "Use Forward single-click to send \(model.dictationShortcutLabel). Set the same shortcut in macOS Keyboard > Dictation. When Dictation stops, Return is sent automatically."
-                                : "Use the Forward side mouse button to send \(model.dictationShortcutLabel). Set the same shortcut in macOS Keyboard > Dictation. When Dictation stops, Return is sent automatically."
+                            model.isAppleDictationBackendSelected
+                                ? "Use the Forward side mouse button to send \(model.dictationShortcutLabel). Set the same shortcut in macOS Keyboard > Dictation. When Dictation stops, Return is sent automatically."
+                                : "Use the Forward side mouse button to start/stop whisper.cpp recording. On stop, audio is transcribed and pasted."
                         )
                             .font(.caption)
                             .foregroundStyle(.secondary)
@@ -364,6 +356,141 @@ struct SettingsView: View {
                     Toggle("", isOn: forwardButtonDictationBinding)
                         .labelsHidden()
                         .toggleStyle(.switch)
+                }
+                .padding(14)
+                .roundedSurface()
+
+                HStack(spacing: 12) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Start dictation after screenshot paste")
+                            .font(.headline)
+                        Text(
+                            model.forwardButtonDictationEnabled
+                                ? (
+                                    model.screenshotPasteStartsDictationEnabled
+                                        ? "After a screenshot, the next click pastes it and starts dictation. The following left click stops dictation."
+                                        : "Screenshots stay quiet. Turn this on only when you want the paste click to start dictation too."
+                                )
+                                : "Screenshots stay quiet. Turn on Forward-button Dictation first if you want screenshot paste to optionally start dictation."
+                        )
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Toggle("", isOn: screenshotPasteStartsDictationBinding)
+                        .labelsHidden()
+                        .toggleStyle(.switch)
+                }
+                .padding(14)
+                .roundedSurface()
+
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Dictation Engine")
+                        .font(.headline)
+
+                    Picker("Engine", selection: dictationBackendBinding) {
+                        ForEach(AppModel.DictationBackend.allCases) { backend in
+                            Text(backend.displayName)
+                                .tag(backend)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+
+                    if model.isAppleDictationBackendSelected {
+                        Text("Apple mode uses macOS Dictation via \(model.dictationShortcutLabel).")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    if model.isWhisperBackendSelected {
+                        VStack(alignment: .leading, spacing: 10) {
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text("Whisper model")
+                                    .font(.subheadline.weight(.semibold))
+                                Picker("Whisper model", selection: whisperModelPresetBinding) {
+                                    ForEach(WhisperDictationService.ModelPreset.allCases) { preset in
+                                        Text(preset.displayName).tag(preset)
+                                    }
+                                }
+                                .pickerStyle(.menu)
+                                Text("Expected model file: \(model.whisperModelFileName)")
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                            }
+
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text("Whisper microphone")
+                                    .font(.subheadline.weight(.semibold))
+                                Picker("Whisper microphone", selection: whisperMicrophoneSelectionBinding) {
+                                    ForEach(model.whisperMicrophoneOptions) { option in
+                                        Text(option.displayName).tag(option.id)
+                                    }
+                                }
+                                .pickerStyle(.menu)
+                                Text("Selected: \(model.whisperSelectedMicrophoneSummary)")
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                                Text("Built-in mic is recommended when your output is on Bluetooth so the start cue does not get swallowed by route switching.")
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                            }
+
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text("whisper executable path (optional)")
+                                    .font(.subheadline.weight(.semibold))
+                                TextField(
+                                    "Auto-detect whisper-cli from Homebrew paths",
+                                    text: whisperExecutablePathBinding
+                                )
+                                .textFieldStyle(.roundedBorder)
+                                .font(.system(.caption, design: .monospaced))
+                            }
+
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text("Model directory")
+                                    .font(.subheadline.weight(.semibold))
+                                TextField(
+                                    WhisperDictationService.defaultModelDirectoryPath,
+                                    text: whisperModelDirectoryPathBinding
+                                )
+                                .textFieldStyle(.roundedBorder)
+                                .font(.system(.caption, design: .monospaced))
+
+                                HStack(spacing: 10) {
+                                    Button("Open Model Directory") {
+                                        model.openWhisperModelDirectoryInFinder()
+                                    }
+                                    .buttonStyle(SecondaryCapsuleButtonStyle())
+                                }
+                            }
+
+                            HStack(spacing: 12) {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text("Keep debug recordings")
+                                        .font(.subheadline.weight(.semibold))
+                                    Text("Saves each captured whisper recording as a WAV file for debugging.")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                                Toggle("", isOn: whisperDebugRecordingsBinding)
+                                    .labelsHidden()
+                                    .toggleStyle(.switch)
+                            }
+
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text(model.whisperDebugRecordingsPath)
+                                    .font(.system(.caption, design: .monospaced))
+                                    .foregroundStyle(.secondary)
+                                    .textSelection(.enabled)
+
+                                Button("Open Debug Recordings") {
+                                    model.openWhisperDebugRecordingsInFinder()
+                                }
+                                .buttonStyle(SecondaryCapsuleButtonStyle())
+                            }
+                        }
+                    }
                 }
                 .padding(14)
                 .roundedSurface()
