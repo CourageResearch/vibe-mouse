@@ -2,6 +2,7 @@
 import Combine
 import Carbon.HIToolbox
 import Foundation
+import ServiceManagement
 
 @MainActor
 final class AppModel: ObservableObject {
@@ -42,6 +43,9 @@ final class AppModel: ObservableObject {
             applyMonitorState()
         }
     }
+
+    @Published private(set) var launchAtLoginEnabled = false
+    @Published private(set) var launchAtLoginRequiresApproval = false
 
     @Published var screenshotPasteStartsDictationEnabled: Bool {
         didSet {
@@ -355,6 +359,7 @@ final class AppModel: ObservableObject {
         configureSideButtonCallback()
         configureScrollDebugLoggingCallback()
         refreshWhisperMicrophoneOptions()
+        refreshLaunchAtLoginStatus()
 
         refreshPermissions()
         requestRequiredPermissionsOnFirstLaunch()
@@ -369,6 +374,7 @@ final class AppModel: ObservableObject {
                 guard let self else { return }
                 self.refreshPermissions()
                 self.refreshWhisperMicrophoneOptions()
+                self.refreshLaunchAtLoginStatus()
                 self.updateDictationCursorOverlay()
                 self.applyMonitorState()
             }
@@ -463,6 +469,28 @@ final class AppModel: ObservableObject {
         runScreenshot()
     }
 
+    func setLaunchAtLoginEnabled(_ enabled: Bool) {
+        do {
+            if enabled {
+                try SMAppService.mainApp.register()
+            } else {
+                try SMAppService.mainApp.unregister()
+            }
+
+            refreshLaunchAtLoginStatus()
+            if launchAtLoginRequiresApproval {
+                lastActionMessage = "Launch at Login is pending approval in System Settings > General > Login Items."
+            } else {
+                lastActionMessage = enabled
+                    ? "Launch at Login enabled."
+                    : "Launch at Login disabled."
+            }
+        } catch {
+            refreshLaunchAtLoginStatus()
+            lastActionMessage = "Could not update Launch at Login: \(error.localizedDescription)"
+        }
+    }
+
     func openScrollEventLogInFinder() {
         let fileManager = FileManager.default
         let logURL = Self.scrollEventLogURL
@@ -544,6 +572,12 @@ final class AppModel: ObservableObject {
             whisperMicrophoneSelectionID = WhisperDictationService.preferredMicrophoneSelectionID()
             return
         }
+    }
+
+    private func refreshLaunchAtLoginStatus() {
+        let status = SMAppService.mainApp.status
+        launchAtLoginEnabled = status == .enabled || status == .requiresApproval
+        launchAtLoginRequiresApproval = status == .requiresApproval
     }
 
     private func requestRequiredPermissionsOnFirstLaunch() {

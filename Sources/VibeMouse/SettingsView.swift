@@ -43,6 +43,13 @@ struct SettingsView: View {
         )
     }
 
+    private var launchAtLoginBinding: Binding<Bool> {
+        Binding(
+            get: { model.launchAtLoginEnabled },
+            set: { model.setLaunchAtLoginEnabled($0) }
+        )
+    }
+
     private var screenshotPasteStartsDictationBinding: Binding<Bool> {
         Binding(
             get: { model.screenshotPasteStartsDictationEnabled },
@@ -263,6 +270,30 @@ struct SettingsView: View {
                     }
                     Spacer()
                     Toggle("", isOn: enabledBinding)
+                        .labelsHidden()
+                        .toggleStyle(.switch)
+                }
+                .padding(14)
+                .roundedSurface()
+
+                HStack(spacing: 12) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Launch at Login")
+                            .font(.headline)
+                        Text(
+                            model.launchAtLoginRequiresApproval
+                                ? "Mouse Chord Shot is waiting for approval in System Settings > General > Login Items."
+                                : (
+                                    model.launchAtLoginEnabled
+                                        ? "Mouse Chord Shot will open automatically when you log in."
+                                        : "Open Mouse Chord Shot automatically when you log in."
+                                )
+                        )
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Toggle("", isOn: launchAtLoginBinding)
                         .labelsHidden()
                         .toggleStyle(.switch)
                 }
