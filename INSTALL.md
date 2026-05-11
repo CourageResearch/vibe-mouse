@@ -4,7 +4,7 @@
 
 Download the latest app zip from GitHub Releases:
 
-- `Mouse-Chord-Shot-v0.1.0-macOS-arm64.zip`
+- `Vibe-Mouse-v0.1.0-macOS-arm64.zip`
 
 This build is for Apple Silicon (`arm64`) Macs.
 
@@ -42,7 +42,7 @@ After granting permissions:
 2. Reopen it
 3. Click `Refresh Status`
 
-The status should show it is listening for the mouse chord.
+The status should show it is listening for screenshot, keyboard, and mouse shortcuts.
 
 ## Using It
 
@@ -55,22 +55,24 @@ Then click-drag to capture an area. The screenshot is copied to the clipboard.
 
 If you want normal Caps Lock behavior, disable **Settings → Behavior → Use Caps Lock for screenshot**.
 
-If enabled in the app:
+Palm-friendly Windows-style shortcuts are translated while Vibe Mouse is enabled:
 
-- Press **Back + Forward side buttons together** to paste clipboard (`Cmd+V`).
-- Press **Back side button alone** to pass Back through to apps normally.
-- Press **Forward side button** to toggle system Dictation on/off.
-- When Dictation is toggled off from Vibe Mouse, it automatically sends **Return**.
+- **Ctrl + V** pastes with macOS Command+V.
+- **Ctrl + C**, **Ctrl + T**, **Ctrl + W**, and similar shortcuts map to their Mac Command equivalents.
+- **Ctrl + Tab** and **Ctrl + Shift + Tab** are left alone so Chrome can cycle tabs.
+- **Ctrl + Alt + Left/Right/Up/Down** snaps the focused window like Windows.
+- **Ctrl + Alt + Shift + Left/Right** moves the focused window to the physically neighboring monitor.
 
-### Experimental Forward Gestures (Preview)
+Mouse controls:
 
-Enable this in **Settings → Behavior** to test an alternate control scheme:
+- **Center click** toggles Windows-style auto-scroll.
+- **Left click** stops auto-scroll when it is active.
+- **Back + Forward side buttons together** toggles the dictation clutch.
+- When the dictation clutch is active, **center click** toggles Dictation instead of auto-scroll.
+- Back and Forward side buttons still pass through normally when pressed alone.
+- When Apple Dictation is toggled off from Vibe Mouse, it automatically sends **Return**.
 
-- **Single-click Forward**: toggle Dictation
-- **Press + drag Forward, then release**: capture selected area to clipboard
-- **Double-click Forward**: paste clipboard (`Cmd+V`)
-
-## Configure Dictation Shortcut (for Forward Button)
+## Configure Dictation Shortcut
 
 Set macOS Dictation to use this shortcut so Vibe Mouse can toggle it:
 
@@ -78,7 +80,7 @@ Set macOS Dictation to use this shortcut so Vibe Mouse can toggle it:
 2. Ensure Dictation is turned on
 3. Set Dictation shortcut to **Control + Option + Command + D**
 
-Vibe Mouse sends that shortcut when you press the Forward side button.
+Vibe Mouse sends that shortcut when you use the dictation clutch, the foot pedal, or another configured dictation trigger.
 
 ## If The App Is Not Listed In macOS Permission Pickers
 

@@ -62,6 +62,14 @@ struct MenuPanelView: View {
                     }
                     .buttonStyle(PanelSecondaryButtonStyle())
                 }
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(model.buildVersionLabel)
+                        .font(.caption2.weight(.semibold))
+                    Text(model.runtimeOriginLabel)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
             }
             .padding(14)
         }
@@ -77,24 +85,18 @@ struct MenuPanelView: View {
 
     private var shortcutSummaryText: String {
         if model.forwardButtonDictationEnabled {
-            if model.screenshotPasteStartsDictationActive {
-                return "\(screenshotKeyboardCompactSummaryGesture) screenshot, next-click paste, Forward Dictation, screenshot paste can auto-start Dictation"
-            }
-            return "\(screenshotKeyboardCompactSummaryGesture) screenshot, next-click paste, Forward Dictation"
+            return "\(screenshotKeyboardCompactSummaryGesture) screenshot, Ctrl+Alt+Arrow windows, center auto-scroll, dictation clutch"
         }
 
-        return "\(screenshotKeyboardCompactSummaryGesture) screenshot, next-click paste"
+        return "\(screenshotKeyboardCompactSummaryGesture) screenshot, Ctrl+Alt+Arrow windows, center auto-scroll"
     }
 
     private var listeningSummaryText: String {
         if model.forwardButtonDictationEnabled {
-            if model.screenshotPasteStartsDictationActive {
-                return "Listening for \(screenshotListeningGesture) screenshot, next-click paste after capture, Forward Dictation toggle, and screenshot auto-start Dictation that stops on the following click."
-            }
-            return "Listening for \(screenshotListeningGesture) screenshot, next-click paste after capture, and Forward Dictation toggle."
+            return "Listening for \(screenshotListeningGesture) screenshot, palm Ctrl shortcuts, Ctrl+Alt+Arrow window tiling, center-click auto-scroll, and the Back+Forward clutch for center-button dictation."
         }
 
-        return "Listening for \(screenshotListeningGesture) screenshot triggers and next-click paste after capture."
+        return "Listening for \(screenshotListeningGesture) screenshot triggers, palm Ctrl shortcuts, Ctrl+Alt+Arrow window tiling, and center-click auto-scroll."
     }
 
     private var screenshotKeyboardSummaryGesture: String {

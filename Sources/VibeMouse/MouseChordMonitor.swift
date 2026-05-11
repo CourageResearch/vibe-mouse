@@ -6,6 +6,26 @@ import IOKit
 import IOKit.hidsystem
 
 final class MouseChordMonitor {
+    enum WindowArrowShortcut {
+        case left
+        case right
+        case up
+        case down
+        case moveDisplayLeft
+        case moveDisplayRight
+    }
+
+    struct ModifiedArrowKeySample: Sendable {
+        let keyCode: Int64
+        let flagsRawValue: UInt64
+        let hasControl: Bool
+        let hasAlternate: Bool
+        let hasCommand: Bool
+        let hasShift: Bool
+        let hasFn: Bool
+        let matched: Bool
+    }
+
     struct ScrollDebugSample: Sendable {
         let timestamp: TimeInterval
         let reverseEnabled: Bool
@@ -43,9 +63,13 @@ final class MouseChordMonitor {
     var onSideButtonDown: (@MainActor @Sendable (_ buttonNumber: Int64) -> Void)?
     var onSideButtonUp: (@MainActor @Sendable (_ buttonNumber: Int64, _ location: CGPoint) -> Void)?
     var onSideButtonDragged: (@MainActor @Sendable (_ buttonNumber: Int64, _ location: CGPoint) -> Void)?
-    var onPrimaryClickUp: (@MainActor @Sendable (_ location: CGPoint) -> Void)?
+    var onPrimaryClickDown: (@MainActor @Sendable () -> Void)?
+    var onWindowArrowShortcut: (@MainActor @Sendable (_ shortcut: WindowArrowShortcut) -> Void)?
+    var onModifiedArrowKey: (@MainActor @Sendable (_ sample: ModifiedArrowKeySample) -> Void)?
     var onScrollDebugSample: (@MainActor @Sendable (_ sample: ScrollDebugSample) -> Void)?
     var shouldSuppressKeyEvent: ((_ keyCode: Int64, _ type: CGEventType) -> Bool)?
+    var shouldSuppressPrimaryClick: (() -> Bool)?
+    var palmControlShortcutRemappingEnabled = true
     var interceptedSideMouseButtons: Set<Int64> = []
     var reverseScrollingEnabled = false
     var mouseScrollSpeed: Double = 13
@@ -53,6 +77,8 @@ final class MouseChordMonitor {
     var minimumTriggerIntervalSeconds: TimeInterval = 0.20
     var releasePollIntervalSeconds: TimeInterval = 0.005
     var maximumReleaseWaitSeconds: TimeInterval = 0.50
+
+    private static let syntheticOtherMouseEventUserData: Int64 = 0x564942454D4F5553
 
     private var eventTap: CFMachPort?
     private var runLoopSource: CFRunLoopSource?
@@ -68,6 +94,8 @@ final class MouseChordMonitor {
     private var leftDownTime: TimeInterval?
     private var rightDownTime: TimeInterval?
     private var suppressF4KeyUp = false
+    private var suppressNextLeftMouseUp = false
+    private var suppressedWindowArrowKeyUps: Set<Int64> = []
     private var suppressedSideButtons: Set<Int64> = []
     private var lastChordTriggerDispatchTime: TimeInterval = 0
     private var lastKeyboardTriggerDispatchTime: TimeInterval = 0
@@ -76,7 +104,40 @@ final class MouseChordMonitor {
     private var didApplyCapsLockLockingOverride = false
     private var originalCapsLockDoesLockValue: UInt32?
 
-    private let supportedSideMouseButtons: Set<Int64> = [3, 4]
+    private let supportedSideMouseButtons: Set<Int64> = [2, 3, 4]
+    private let palmControlCommandKeyCodes: Set<Int64> = [
+        Int64(kVK_ANSI_A),
+        Int64(kVK_ANSI_B),
+        Int64(kVK_ANSI_C),
+        Int64(kVK_ANSI_D),
+        Int64(kVK_ANSI_F),
+        Int64(kVK_ANSI_I),
+        Int64(kVK_ANSI_K),
+        Int64(kVK_ANSI_L),
+        Int64(kVK_ANSI_N),
+        Int64(kVK_ANSI_O),
+        Int64(kVK_ANSI_P),
+        Int64(kVK_ANSI_R),
+        Int64(kVK_ANSI_S),
+        Int64(kVK_ANSI_T),
+        Int64(kVK_ANSI_U),
+        Int64(kVK_ANSI_V),
+        Int64(kVK_ANSI_W),
+        Int64(kVK_ANSI_X),
+        Int64(kVK_ANSI_Z),
+        Int64(kVK_ANSI_0),
+        Int64(kVK_ANSI_1),
+        Int64(kVK_ANSI_2),
+        Int64(kVK_ANSI_3),
+        Int64(kVK_ANSI_4),
+        Int64(kVK_ANSI_5),
+        Int64(kVK_ANSI_6),
+        Int64(kVK_ANSI_7),
+        Int64(kVK_ANSI_8),
+        Int64(kVK_ANSI_9),
+        Int64(kVK_ANSI_Equal),
+        Int64(kVK_ANSI_Minus),
+    ]
     private let nxSystemDefinedEventTypeRawValue: UInt32 = 14 // NX_SYSDEFINED
     private let nxSubtypeAuxControlButtons: Int16 = 8 // NX_SUBTYPE_AUX_CONTROL_BUTTONS
     private let nxSubtypeMenu: Int16 = 16 // NX_SUBTYPE_MENU
@@ -169,6 +230,10 @@ final class MouseChordMonitor {
     }
 
     private func handleEvent(type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
+        if event.getIntegerValueField(.eventSourceUserData) == Self.syntheticOtherMouseEventUserData {
+            return Unmanaged.passUnretained(event)
+        }
+
         if type.rawValue == nxSystemDefinedEventTypeRawValue {
             return handleSystemDefinedEvent(event)
         }
@@ -182,6 +247,11 @@ final class MouseChordMonitor {
             return Unmanaged.passUnretained(event)
 
         case .leftMouseDown:
+            if shouldSuppressPrimaryClick?() == true {
+                suppressNextLeftMouseUp = true
+                dispatchPrimaryClickDownTrigger()
+                return nil
+            }
             leftDown = true
             leftDownTime = now()
             if maybeTriggerChord() {
@@ -198,12 +268,13 @@ final class MouseChordMonitor {
             return suppressUntilButtonsUp ? nil : Unmanaged.passUnretained(event)
 
         case .leftMouseUp:
+            if suppressNextLeftMouseUp {
+                suppressNextLeftMouseUp = false
+                return nil
+            }
             leftDown = false
             let shouldSuppress = suppressUntilButtonsUp
             resetIfIdle()
-            if !shouldSuppress {
-                dispatchPrimaryClickUpTrigger(location: event.location)
-            }
             return shouldSuppress ? nil : Unmanaged.passUnretained(event)
 
         case .rightMouseUp:
@@ -303,6 +374,30 @@ final class MouseChordMonitor {
         }
 
         return Unmanaged.passUnretained(event)
+    }
+
+    func replayNativeOtherMouseClick(buttonNumber: Int64, location: CGPoint) {
+        guard let mouseButton = CGMouseButton(rawValue: UInt32(buttonNumber)) else { return }
+        guard let source = CGEventSource(stateID: .combinedSessionState) else { return }
+        guard let downEvent = CGEvent(
+            mouseEventSource: source,
+            mouseType: .otherMouseDown,
+            mouseCursorPosition: location,
+            mouseButton: mouseButton
+        ), let upEvent = CGEvent(
+            mouseEventSource: source,
+            mouseType: .otherMouseUp,
+            mouseCursorPosition: location,
+            mouseButton: mouseButton
+        ) else {
+            return
+        }
+
+        for event in [downEvent, upEvent] {
+            event.setIntegerValueField(.mouseEventButtonNumber, value: buttonNumber)
+            event.setIntegerValueField(.eventSourceUserData, value: Self.syntheticOtherMouseEventUserData)
+            event.post(tap: .cghidEventTap)
+        }
     }
 
     private func handleScrollWheel(_ event: CGEvent) -> Unmanaged<CGEvent>? {
@@ -418,6 +513,18 @@ final class MouseChordMonitor {
             return nil
         }
 
+        if handleWindowArrowShortcutIfNeeded(event, keyCode: keyCode, isAutoRepeat: isAutoRepeat) {
+            return nil
+        }
+
+        if !isAutoRepeat {
+            dispatchUnmatchedModifiedArrowIfNeeded(event, keyCode: keyCode)
+        }
+
+        if remapPalmControlShortcutIfNeeded(event, keyCode: keyCode) {
+            return Unmanaged.passUnretained(event)
+        }
+
         if keyCode == Int64(kVK_CapsLock) {
             guard onCapsLockKeyDown != nil else {
                 return Unmanaged.passUnretained(event)
@@ -464,6 +571,14 @@ final class MouseChordMonitor {
             return nil
         }
 
+        if suppressedWindowArrowKeyUps.remove(keyCode) != nil {
+            return nil
+        }
+
+        if remapPalmControlShortcutIfNeeded(event, keyCode: keyCode) {
+            return Unmanaged.passUnretained(event)
+        }
+
         if keyCode == Int64(kVK_CapsLock) {
             guard onCapsLockKeyDown != nil else {
                 return Unmanaged.passUnretained(event)
@@ -479,6 +594,119 @@ final class MouseChordMonitor {
         }
 
         return Unmanaged.passUnretained(event)
+    }
+
+    private func handleWindowArrowShortcutIfNeeded(
+        _ event: CGEvent,
+        keyCode: Int64,
+        isAutoRepeat: Bool
+    ) -> Bool {
+        guard let shortcut = windowArrowShortcut(for: event, keyCode: keyCode) else { return false }
+        suppressedWindowArrowKeyUps.insert(keyCode)
+        if !isAutoRepeat {
+            dispatchModifiedArrowKey(event, keyCode: keyCode, matched: true)
+            dispatchWindowArrowShortcut(shortcut)
+        }
+        return true
+    }
+
+    private func windowArrowShortcut(for event: CGEvent, keyCode: Int64) -> WindowArrowShortcut? {
+        guard onWindowArrowShortcut != nil else { return nil }
+        guard isArrowKey(keyCode) else {
+            return nil
+        }
+
+        let flags = event.flags
+        let hasControl = flags.contains(.maskControl)
+        let hasCommand = flags.contains(.maskCommand)
+        let hasAlternate = flags.contains(.maskAlternate)
+        let usesControlAlt = hasControl && (hasAlternate || hasCommand)
+        let usesWindowsKey = hasCommand && !hasControl && !hasAlternate
+        guard usesControlAlt || usesWindowsKey else {
+            return nil
+        }
+
+        let wantsDisplayMove = flags.contains(.maskShift)
+        switch keyCode {
+        case Int64(kVK_LeftArrow):
+            return wantsDisplayMove ? .moveDisplayLeft : .left
+        case Int64(kVK_RightArrow):
+            return wantsDisplayMove ? .moveDisplayRight : .right
+        case Int64(kVK_UpArrow):
+            return wantsDisplayMove ? nil : .up
+        case Int64(kVK_DownArrow):
+            return wantsDisplayMove ? nil : .down
+        default:
+            return nil
+        }
+    }
+
+    private func dispatchUnmatchedModifiedArrowIfNeeded(_ event: CGEvent, keyCode: Int64) {
+        guard isArrowKey(keyCode) else { return }
+        let flags = event.flags
+        guard flags.contains(.maskControl)
+            || flags.contains(.maskAlternate)
+            || flags.contains(.maskCommand)
+            || flags.contains(.maskShift) else {
+            return
+        }
+        dispatchModifiedArrowKey(event, keyCode: keyCode, matched: false)
+    }
+
+    private func dispatchModifiedArrowKey(_ event: CGEvent, keyCode: Int64, matched: Bool) {
+        let callback = onModifiedArrowKey
+        guard callback != nil else { return }
+        let flags = event.flags
+        let sample = ModifiedArrowKeySample(
+            keyCode: keyCode,
+            flagsRawValue: flags.rawValue,
+            hasControl: flags.contains(.maskControl),
+            hasAlternate: flags.contains(.maskAlternate),
+            hasCommand: flags.contains(.maskCommand),
+            hasShift: flags.contains(.maskShift),
+            hasFn: flags.contains(.maskSecondaryFn),
+            matched: matched
+        )
+        Task { @MainActor in
+            callback?(sample)
+        }
+    }
+
+    private func isArrowKey(_ keyCode: Int64) -> Bool {
+        keyCode == Int64(kVK_LeftArrow)
+            || keyCode == Int64(kVK_RightArrow)
+            || keyCode == Int64(kVK_UpArrow)
+            || keyCode == Int64(kVK_DownArrow)
+    }
+
+    private func remapPalmControlShortcutIfNeeded(_ event: CGEvent, keyCode: Int64) -> Bool {
+        guard palmControlShortcutRemappingEnabled else { return false }
+
+        let flags = event.flags
+        guard flags.contains(.maskControl),
+              !flags.contains(.maskCommand),
+              !flags.contains(.maskAlternate),
+              !flags.contains(.maskSecondaryFn) else {
+            return false
+        }
+
+        if keyCode == Int64(kVK_ANSI_Y) {
+            var remappedFlags = flags
+            remappedFlags.remove(.maskControl)
+            remappedFlags.insert(.maskCommand)
+            remappedFlags.insert(.maskShift)
+            event.flags = remappedFlags
+            event.setIntegerValueField(.keyboardEventKeycode, value: Int64(kVK_ANSI_Z))
+            return true
+        }
+
+        guard palmControlCommandKeyCodes.contains(keyCode) else { return false }
+
+        var remappedFlags = flags
+        remappedFlags.remove(.maskControl)
+        remappedFlags.insert(.maskCommand)
+        event.flags = remappedFlags
+        return true
     }
 
     private func handleSystemDefinedEvent(_ event: CGEvent) -> Unmanaged<CGEvent>? {
@@ -815,10 +1043,17 @@ final class MouseChordMonitor {
         }
     }
 
-    private func dispatchPrimaryClickUpTrigger(location: CGPoint) {
-        let callback = onPrimaryClickUp
+    private func dispatchPrimaryClickDownTrigger() {
+        let callback = onPrimaryClickDown
         Task { @MainActor in
-            callback?(location)
+            callback?()
+        }
+    }
+
+    private func dispatchWindowArrowShortcut(_ shortcut: WindowArrowShortcut) {
+        let callback = onWindowArrowShortcut
+        Task { @MainActor in
+            callback?(shortcut)
         }
     }
 
@@ -827,7 +1062,9 @@ final class MouseChordMonitor {
         leftDown = false
         rightDown = false
         suppressF4KeyUp = false
+        suppressNextLeftMouseUp = false
         suppressUntilButtonsUp = false
+        suppressedWindowArrowKeyUps.removeAll()
         suppressedSideButtons.removeAll()
         chordTriggeredForCurrentPress = false
         chordPendingActionAfterRelease = false

@@ -50,13 +50,6 @@ struct SettingsView: View {
         )
     }
 
-    private var screenshotPasteStartsDictationBinding: Binding<Bool> {
-        Binding(
-            get: { model.screenshotPasteStartsDictationEnabled },
-            set: { model.screenshotPasteStartsDictationEnabled = $0 }
-        )
-    }
-
     private var dictationBackendBinding: Binding<AppModel.DictationBackend> {
         Binding(
             get: { model.dictationBackend },
@@ -134,29 +127,27 @@ struct SettingsView: View {
     }
 
     private var captureLegendDetail: String {
-        "Take screenshot, then click to paste"
+        "Take screenshot and keep it on the clipboard"
     }
 
     private var pasteLegendGesture: String {
-        "Next Click"
+        "Clipboard Only"
     }
 
     private var pasteLegendDetail: String {
-        model.screenshotPasteStartsDictationActive
-            ? "After a screenshot, click the target field to paste it and begin dictation. The following left click stops dictation."
-            : "After a screenshot, click the target field to paste it."
+        "Screenshots are copied to the clipboard without auto-pasting."
     }
 
     private var dictationLegendGesture: String {
-        "Forward Button"
+        "Back+Forward, then Center"
     }
 
     private var dictationLegendDetail: String {
         guard model.forwardButtonDictationEnabled else { return "Enable in Behavior" }
         if model.isAppleDictationBackendSelected {
-            return "Toggle macOS Dictation (\(model.dictationShortcutLabel)); sends Return when Dictation stops."
+            return "Press Back+Forward together to arm the clutch, then use center click to toggle macOS Dictation (\(model.dictationShortcutLabel)). Press Back+Forward together again to restore center-click auto-scroll."
         }
-        return "Toggle whisper.cpp recording. Press once to start, press again to transcribe and paste."
+        return "Press Back+Forward together to arm the clutch, then use center click to start or stop whisper.cpp dictation. Press Back+Forward together again to restore center-click auto-scroll."
     }
 
     private var headerCard: some View {
@@ -178,9 +169,7 @@ struct SettingsView: View {
                 }
 
                 Text(
-                    model.screenshotPasteStartsDictationActive
-                        ? "Global shortcuts: \(keyboardCaptureSummary) capture, click the target field to paste and start dictation, then click once more to stop."
-                        : "Global shortcuts: \(keyboardCaptureSummary) capture, click the target field to paste, and use Forward for Dictation when you want it."
+                    "Global shortcuts: \(keyboardCaptureSummary) capture to clipboard, Ctrl+Alt+Arrow window tiling across monitors, center-click auto-scroll, and Back+Forward clutch for dictation when you want it."
                 )
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
@@ -261,9 +250,7 @@ struct SettingsView: View {
                         Text("Enable mouse shortcuts")
                             .font(.headline)
                         Text(
-                            model.screenshotPasteStartsDictationActive
-                                ? "When enabled, the app listens globally for screenshot capture (\(screenshotListeningLegend)), click-to-paste after capture, and optional dictation auto-start with stop-on-next-click."
-                                : "When enabled, the app listens globally for screenshot capture (\(screenshotListeningLegend)), click-to-paste after capture, and optional Forward-button Dictation."
+                            "When enabled, the app listens globally for screenshot capture (\(screenshotListeningLegend)), palm Ctrl shortcuts, center-click auto-scroll, and the optional Back+Forward dictation clutch."
                         )
                             .font(.caption)
                             .foregroundStyle(.secondary)
@@ -282,11 +269,11 @@ struct SettingsView: View {
                             .font(.headline)
                         Text(
                             model.launchAtLoginRequiresApproval
-                                ? "Mouse Chord Shot is waiting for approval in System Settings > General > Login Items."
+                                ? "Vibe Mouse is waiting for approval in System Settings > General > Login Items."
                                 : (
                                     model.launchAtLoginEnabled
-                                        ? "Mouse Chord Shot will open automatically when you log in."
-                                        : "Open Mouse Chord Shot automatically when you log in."
+                                        ? "Vibe Mouse will open automatically when you log in."
+                                        : "Open Vibe Mouse automatically when you log in."
                                 )
                         )
                             .font(.caption)
@@ -373,42 +360,18 @@ struct SettingsView: View {
 
                 HStack(spacing: 12) {
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("Enable Forward-button Dictation")
+                        Text("Enable Dictation Clutch")
                             .font(.headline)
                         Text(
                             model.isAppleDictationBackendSelected
-                                ? "Use the Forward side mouse button to send \(model.dictationShortcutLabel). Set the same shortcut in macOS Keyboard > Dictation. When Dictation stops, Return is sent automatically."
-                                : "Use the Forward side mouse button to start/stop whisper.cpp recording. On stop, audio is transcribed and pasted."
+                                ? "Press Back and Forward together to arm dictation control, then use center click to send \(model.dictationShortcutLabel). Press Back and Forward together again to return center click to auto-scroll mode. When Apple Dictation stops, Return is sent automatically."
+                                : "Press Back and Forward together to arm dictation control, then use center click to start or stop whisper.cpp recording. Press Back and Forward together again to return center click to auto-scroll mode."
                         )
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
                     Spacer()
                     Toggle("", isOn: forwardButtonDictationBinding)
-                        .labelsHidden()
-                        .toggleStyle(.switch)
-                }
-                .padding(14)
-                .roundedSurface()
-
-                HStack(spacing: 12) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Start dictation after screenshot paste")
-                            .font(.headline)
-                        Text(
-                            model.forwardButtonDictationEnabled
-                                ? (
-                                    model.screenshotPasteStartsDictationEnabled
-                                        ? "After a screenshot, the next click pastes it and starts dictation. The following left click stops dictation."
-                                        : "Screenshots stay quiet. Turn this on only when you want the paste click to start dictation too."
-                                )
-                                : "Screenshots stay quiet. Turn on Forward-button Dictation first if you want screenshot paste to optionally start dictation."
-                        )
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                    Spacer()
-                    Toggle("", isOn: screenshotPasteStartsDictationBinding)
                         .labelsHidden()
                         .toggleStyle(.switch)
                 }

@@ -8,6 +8,8 @@ final class SoundCuePlayer {
     enum Cue: String {
         case start
         case stop
+        case clutchOn = "clutch_on"
+        case clutchOff = "clutch_off"
     }
 
     enum PlaybackMode: String {
@@ -54,20 +56,11 @@ final class SoundCuePlayer {
     private var preparedCues: [Cue: PreparedCue] = [:]
     private var fallbackCues: [Cue: FallbackCue] = [:]
 
-    init(startPath: String, stopPath: String) {
-        if let preparedStart = Self.makePreparedCue(path: startPath) {
-            preparedCues[.start] = preparedStart
-        }
-        if let preparedStop = Self.makePreparedCue(path: stopPath) {
-            preparedCues[.stop] = preparedStop
-        }
-
-        if let fallbackStart = Self.makeFallbackCue(path: startPath) {
-            fallbackCues[.start] = fallbackStart
-        }
-        if let fallbackStop = Self.makeFallbackCue(path: stopPath) {
-            fallbackCues[.stop] = fallbackStop
-        }
+    init(startPath: String, stopPath: String, clutchOnPath: String, clutchOffPath: String) {
+        registerCue(.start, path: startPath)
+        registerCue(.stop, path: stopPath)
+        registerCue(.clutchOn, path: clutchOnPath)
+        registerCue(.clutchOff, path: clutchOffPath)
     }
 
     deinit {
@@ -132,6 +125,15 @@ final class SoundCuePlayer {
             return uid
         default:
             return "unknown_output"
+        }
+    }
+
+    private func registerCue(_ cue: Cue, path: String) {
+        if let preparedCue = Self.makePreparedCue(path: path) {
+            preparedCues[cue] = preparedCue
+        }
+        if let fallbackCue = Self.makeFallbackCue(path: path) {
+            fallbackCues[cue] = fallbackCue
         }
     }
 

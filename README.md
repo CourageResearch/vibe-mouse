@@ -3,7 +3,8 @@
 Vibe Mouse is a macOS menu bar utility that maps mouse and keyboard chords to fast desktop actions:
 
 - screenshot capture to clipboard
-- clipboard paste (`Cmd+V`)
+- palm-friendly Windows-style `Ctrl` shortcuts
+- center-click auto-scroll
 - Dictation toggle
 
 The app is built with SwiftUI/AppKit and runs as a menu bar extra (`LSUIElement`), so it stays lightweight and out of the Dock.
@@ -13,13 +14,14 @@ The app is built with SwiftUI/AppKit and runs as a menu bar extra (`LSUIElement`
 - Trigger screenshot mode with:
   - Left click + Right click chord
   - Caps Lock (optional, enabled by default)
-- Optional side-button shortcuts:
-  - Back + Forward chord -> paste clipboard (`Cmd+V`)
-  - Forward button -> toggle Dictation
-- Experimental Forward gesture mode:
-  - Forward single-click -> Dictation
-  - Forward drag + release -> area screenshot to clipboard
-  - Forward double-click -> paste clipboard
+- Screenshots are copied to the clipboard without auto-pasting
+- Palm-friendly keyboard remaps:
+  - `Ctrl+V`, `Ctrl+C`, `Ctrl+T`, `Ctrl+W`, and similar Windows muscle-memory shortcuts are translated to Mac `Command` shortcuts
+  - `Ctrl+Tab` and `Ctrl+Shift+Tab` are left alone for browser tab cycling
+  - `Ctrl+Alt+Left/Right/Up/Down` snaps the focused window like Windows
+  - `Ctrl+Alt+Shift+Left/Right` moves the focused window to the physically neighboring display
+- Center click toggles Windows-style auto-scroll
+- Back + Forward together toggles the dictation clutch; when the clutch is active, center click toggles Dictation instead of auto-scroll
 - Adjustable screenshot chord timing window (20-200 ms)
 - Menu bar status and a full Settings window for behavior + permissions
 
@@ -63,16 +65,29 @@ If the app is not listed in a macOS privacy pane, use the `+` button and add `Vi
 Default actions:
 
 - `Caps Lock` or `Left + Right mouse chord`: start interactive screenshot capture
-- `Back + Forward`: paste clipboard (`Cmd+V`)
-- `Forward`: toggle Dictation (and send `Return` when stopping Dictation)
+- `Ctrl+V`: paste the clipboard with Windows muscle memory
+- `Ctrl+Tab`: cycle browser tabs
+- `Ctrl+Alt+Left/Right`: snap the focused window to the left or right half
+- `Ctrl+Alt+Up`: maximize the focused window
+- `Ctrl+Alt+Down`: restore or snap the focused window downward
+- `Ctrl+Alt+Shift+Left/Right`: move the focused window across monitors
+- `Center click`: toggle auto-scroll
+- `Back + Forward`: toggle the dictation clutch
+- `Center click`, while dictation clutch is active: toggle Dictation
 
 All shortcuts can be enabled/disabled in **Settings -> Behavior**.
 
 ## Build and Run from Source
 
 ```bash
-swift build
-swift run vibe-mouse
+./scripts/dev-run.sh
+```
+
+By default, `dev-run` refreshes the installed app bundle and launches that copy so the app you click in macOS stays in sync with the latest local build.
+If you explicitly want the raw repo binary instead, run:
+
+```bash
+VIBE_MOUSE_DIRECT_RUN=1 ./scripts/dev-run.sh
 ```
 
 You can also open the package in Xcode:
@@ -92,10 +107,19 @@ For faster iteration against an installed app bundle, use:
 What it does:
 
 - builds the package
+- uses repo-local SwiftPM/module cache directories so local toolchain caches do not need writable home-directory paths
 - copies `.build/debug/vibe-mouse` into `Vibe Mouse.app`
 - bumps `CFBundleVersion`
 - signs with a local self-generated dev identity in `~/.vibe-mouse-signing`
 - restarts the app
+- keeps the installed app bundle as the default development launch target, which avoids version confusion between a repo binary and an older app in `/Applications`
+
+If you prefer the raw Swift commands, this repo expects a writable local scratch path:
+
+```bash
+swift build --disable-sandbox --scratch-path .build/scratch
+$(swift build --disable-sandbox --scratch-path .build/scratch --show-bin-path)/vibe-mouse
+```
 
 Optional env var:
 

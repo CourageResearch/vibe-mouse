@@ -39,6 +39,13 @@ final class AppModel: ObservableObject {
     @Published var forwardButtonDictationEnabled: Bool {
         didSet {
             defaults.set(forwardButtonDictationEnabled, forKey: Self.forwardButtonDictationEnabledKey)
+            if !forwardButtonDictationEnabled {
+                centerButtonDictationClutchEnabled = false
+                heldSideButtons.removeAll()
+                sideButtonDownTimes.removeAll()
+                replayNativeSideButtonClicks.removeAll()
+                sideButtonChordHandledForCurrentPress = false
+            }
             configureSideButtonCallback()
             applyMonitorState()
         }
@@ -46,19 +53,6 @@ final class AppModel: ObservableObject {
 
     @Published private(set) var launchAtLoginEnabled = false
     @Published private(set) var launchAtLoginRequiresApproval = false
-
-    @Published var screenshotPasteStartsDictationEnabled: Bool {
-        didSet {
-            defaults.set(
-                screenshotPasteStartsDictationEnabled,
-                forKey: Self.screenshotPasteStartsDictationEnabledKey
-            )
-            if !screenshotPasteStartsDictationEnabled {
-                disarmScreenshotAutoDictationStop()
-            }
-            applyMonitorState()
-        }
-    }
 
     @Published var dictationBackend: DictationBackend {
         didSet {
@@ -172,10 +166,6 @@ final class AppModel: ObservableObject {
         dictationBackend == .whisperCpp
     }
 
-    var screenshotPasteStartsDictationActive: Bool {
-        forwardButtonDictationEnabled && screenshotPasteStartsDictationEnabled
-    }
-
     var whisperModelFileName: String {
         whisperModelPreset.fileName
     }
@@ -198,6 +188,30 @@ final class AppModel: ObservableObject {
         Self.scrollEventLogURL.path
     }
 
+    var buildVersionLabel: String {
+        let shortVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
+        let buildVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String
+
+        switch (shortVersion, buildVersion) {
+        case let (.some(shortVersion), .some(buildVersion)) where !shortVersion.isEmpty && !buildVersion.isEmpty:
+            return "Version \(shortVersion) (\(buildVersion))"
+        case let (_, .some(buildVersion)) where !buildVersion.isEmpty:
+            return "Build \(buildVersion)"
+        case let (.some(shortVersion), _) where !shortVersion.isEmpty:
+            return "Version \(shortVersion)"
+        default:
+            return "Build unavailable"
+        }
+    }
+
+    var runtimeOriginLabel: String {
+        let executablePath = Bundle.main.executableURL?.path ?? ""
+        if executablePath.contains(".app/Contents/MacOS/") {
+            return "Running from app bundle"
+        }
+        return "Running direct from repo build"
+    }
+
     private var appDisplayName: String {
         let displayName = Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String
         let bundleName = Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String
@@ -213,7 +227,6 @@ final class AppModel: ObservableObject {
     private static let enabledKey = "mouseChordShot.enabled"
     private static let chordWindowKey = "mouseChordShot.chordWindowMs"
     private static let forwardButtonDictationEnabledKey = "mouseChordShot.dictation.forwardButtonEnabled"
-    private static let screenshotPasteStartsDictationEnabledKey = "mouseChordShot.dictation.screenshotPasteStarts"
     private static let dictationBackendKey = "mouseChordShot.dictation.backend"
     private static let whisperModelPresetKey = "mouseChordShot.dictation.whisper.modelPreset"
     private static let whisperExecutablePathKey = "mouseChordShot.dictation.whisper.executablePath"
@@ -233,11 +246,13 @@ final class AppModel: ObservableObject {
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         return formatter
     }()
+    private static let centerMouseButtonNumber: Int64 = 2
+    private static let backSideButtonNumber: Int64 = 3
     private static let forwardSideButtonNumber: Int64 = 4
+    private static let sideButtonClutchChordWindowSeconds: TimeInterval = 0.18
     private static let returnAfterDictationStopDelaySeconds: TimeInterval = 0.12
     private static let dictationAutoStopTimeoutSeconds: TimeInterval = 20
     private static let textInputFocusSettleDelaySeconds: TimeInterval = 0.08
-    private static let screenshotAutoPasteDelaySeconds: TimeInterval = 0.14
     private static let codexBundleIdentifier = "com.openai.codex"
     private static let codexAppName = "Codex"
     private static let codexVoicePrefixes = ["codex", "code"]
@@ -245,6 +260,8 @@ final class AppModel: ObservableObject {
     private static let footPedalSuppressionWindowSeconds: TimeInterval = 0.75
     private static let recordingStartSoundPath = "/System/Library/Sounds/Glass.aiff"
     private static let recordingStopSoundPath = "/System/Library/Sounds/Pop.aiff"
+    private static let clutchEnabledSoundPath = "/System/Library/Sounds/Ping.aiff"
+    private static let clutchDisabledSoundPath = "/System/Library/Sounds/Funk.aiff"
 
     private let defaults: UserDefaults
     private let monitor: MouseChordMonitor
@@ -256,6 +273,8 @@ final class AppModel: ObservableObject {
     private let pasteService: PasteService
     private let dictationService: DictationService
     private let whisperDictationService: WhisperDictationService
+    private let windowsAutoScrollService: WindowsAutoScrollService
+    private let windowTilerService: WindowTilerService
     private var activationObserver: NSObjectProtocol?
     private var terminationObserver: NSObjectProtocol?
     private var pasteInProgress = false
@@ -264,9 +283,12 @@ final class AppModel: ObservableObject {
     private var dictationAutoStopTask: Task<Void, Never>?
     private var lastDictationTriggerTime: TimeInterval = 0
     private var lastSoundCueRequestTime: TimeInterval?
-    private var screenshotAutoPasteArmed = false
-    private var screenshotAutoDictationStopArmed = false
     private var footPedalSuppressionDeadline: TimeInterval = 0
+    private var centerButtonDictationClutchEnabled = false
+    private var heldSideButtons: Set<Int64> = []
+    private var sideButtonDownTimes: [Int64: TimeInterval] = [:]
+    private var replayNativeSideButtonClicks: Set<Int64> = []
+    private var sideButtonChordHandledForCurrentPress = false
 
     init(
         defaults: UserDefaults = .standard,
@@ -277,14 +299,18 @@ final class AppModel: ObservableObject {
         screenshotService: ScreenshotService = ScreenshotService(),
         pasteService: PasteService = PasteService(),
         dictationService: DictationService = DictationService(),
-        whisperDictationService: WhisperDictationService = WhisperDictationService()
+        whisperDictationService: WhisperDictationService = WhisperDictationService(),
+        windowsAutoScrollService: WindowsAutoScrollService = WindowsAutoScrollService(),
+        windowTilerService: WindowTilerService = WindowTilerService()
     ) {
         self.defaults = defaults
         self.monitor = monitor
         self.footPedalMonitor = footPedalMonitor
         self.soundCuePlayer = SoundCuePlayer(
             startPath: Self.recordingStartSoundPath,
-            stopPath: Self.recordingStopSoundPath
+            stopPath: Self.recordingStopSoundPath,
+            clutchOnPath: Self.clutchEnabledSoundPath,
+            clutchOffPath: Self.clutchDisabledSoundPath
         )
         self.dictationCursorOverlay = dictationCursorOverlay
         self.textInputFocusService = textInputFocusService
@@ -292,14 +318,13 @@ final class AppModel: ObservableObject {
         self.pasteService = pasteService
         self.dictationService = dictationService
         self.whisperDictationService = whisperDictationService
+        self.windowsAutoScrollService = windowsAutoScrollService
+        self.windowTilerService = windowTilerService
         self.isEnabled = defaults.object(forKey: Self.enabledKey) as? Bool ?? true
         self.chordWindowMs = defaults.object(forKey: Self.chordWindowKey) as? Double ?? 60
         self.forwardButtonDictationEnabled = defaults.object(
             forKey: Self.forwardButtonDictationEnabledKey
         ) as? Bool ?? true
-        self.screenshotPasteStartsDictationEnabled = defaults.object(
-            forKey: Self.screenshotPasteStartsDictationEnabledKey
-        ) as? Bool ?? false
         self.dictationBackend = DictationBackend(
             rawValue: defaults.string(forKey: Self.dictationBackendKey) ?? DictationBackend.appleDictation.rawValue
         ) ?? .appleDictation
@@ -346,8 +371,19 @@ final class AppModel: ObservableObject {
         self.footPedalMonitor.onPedalDown = { [weak self] in
             self?.handleFootPedalDown()
         }
-        self.monitor.onPrimaryClickUp = { [weak self] location in
-            self?.handlePrimaryClickUp(location)
+        self.monitor.onPrimaryClickDown = { [weak self] in
+            self?.handlePrimaryClickDown()
+        }
+        self.monitor.onWindowArrowShortcut = { [weak self] shortcut in
+            self?.handleWindowArrowShortcut(shortcut)
+        }
+        self.monitor.onModifiedArrowKey = { [weak self] sample in
+            self?.handleModifiedArrowKeySample(sample)
+        }
+        self.monitor.shouldSuppressPrimaryClick = { [weak self] in
+            MainActor.assumeIsolated {
+                self?.windowsAutoScrollService.isActive ?? false
+            }
         }
         self.monitor.onEscapeKeyDown = { [weak self] in
             self?.handleEscapeKeyDown()
@@ -593,6 +629,7 @@ final class AppModel: ObservableObject {
         guard isEnabled else {
             monitor.stop()
             footPedalMonitor.stop()
+            windowsAutoScrollService.stop()
             monitorRunning = false
             monitorStatusMessage = "Disabled"
             return
@@ -601,6 +638,7 @@ final class AppModel: ObservableObject {
         if screenshotCaptureInProgress {
             monitor.stop()
             footPedalMonitor.stop()
+            windowsAutoScrollService.stop()
             monitorRunning = false
             monitorStatusMessage = "Paused while screenshot tool is active"
             return
@@ -634,14 +672,151 @@ final class AppModel: ObservableObject {
         runScreenshot()
     }
 
+    private func handleWindowArrowShortcut(_ shortcut: MouseChordMonitor.WindowArrowShortcut) {
+        guard isEnabled else { return }
+        windowsAutoScrollService.stop()
+
+        appendDictationEventLog("window_arrow_shortcut shortcut=\(windowArrowShortcutLogName(shortcut))")
+
+        let command: WindowTilerService.Command = switch shortcut {
+        case .left:
+            .snapLeft
+        case .right:
+            .snapRight
+        case .up:
+            .snapUp
+        case .down:
+            .snapDown
+        case .moveDisplayLeft:
+            .moveDisplayLeft
+        case .moveDisplayRight:
+            .moveDisplayRight
+        }
+
+        switch windowTilerService.perform(command) {
+        case .success(let message):
+            appendDictationEventLog("window_arrow_shortcut result=success message=\(message.replacingOccurrences(of: " ", with: "_"))")
+            lastActionMessage = message
+        case .failure(let error):
+            let message = windowTilerFailureMessage(error)
+            appendDictationEventLog("window_arrow_shortcut result=failure message=\(message.replacingOccurrences(of: " ", with: "_"))")
+            lastActionMessage = message
+        }
+
+        applyMonitorState()
+    }
+
+    private func windowArrowShortcutLogName(_ shortcut: MouseChordMonitor.WindowArrowShortcut) -> String {
+        switch shortcut {
+        case .left:
+            return "left"
+        case .right:
+            return "right"
+        case .up:
+            return "up"
+        case .down:
+            return "down"
+        case .moveDisplayLeft:
+            return "move_display_left"
+        case .moveDisplayRight:
+            return "move_display_right"
+        }
+    }
+
+    private func handleModifiedArrowKeySample(_ sample: MouseChordMonitor.ModifiedArrowKeySample) {
+        appendDictationEventLog(
+            "modified_arrow keyCode=\(sample.keyCode) flags=\(sample.flagsRawValue) control=\(sample.hasControl ? 1 : 0) alt=\(sample.hasAlternate ? 1 : 0) command=\(sample.hasCommand ? 1 : 0) shift=\(sample.hasShift ? 1 : 0) fn=\(sample.hasFn ? 1 : 0) matched=\(sample.matched ? 1 : 0)"
+        )
+    }
+
     private func handleSideButtonDown(_ buttonNumber: Int64) {
         guard isEnabled else { return }
-        guard buttonNumber == Self.forwardSideButtonNumber else { return }
-        appendDictationEventLog("forward_button_down")
 
-        guard forwardButtonDictationEnabled else { return }
-        appendDictationEventLog("forward_button_resolved action=dictation backend=\(dictationBackend.rawValue)")
-        runDictationFromForwardButton()
+        switch buttonNumber {
+        case Self.centerMouseButtonNumber:
+            appendDictationEventLog("center_button_down clutch=\(centerButtonDictationClutchEnabled ? 1 : 0)")
+            if centerButtonDictationClutchEnabled {
+                appendDictationEventLog("center_button_resolved action=dictation backend=\(dictationBackend.rawValue)")
+                runDictationFromCenterButtonClutch()
+            } else {
+                appendDictationEventLog("center_button_resolved action=windows_auto_scroll")
+                windowsAutoScrollService.toggle(at: NSEvent.mouseLocation)
+                lastActionMessage = windowsAutoScrollService.isActive
+                    ? "Auto-scroll active. Move the mouse up/down; center click or Escape stops it."
+                    : "Auto-scroll stopped."
+            }
+
+        case Self.backSideButtonNumber, Self.forwardSideButtonNumber:
+            guard forwardButtonDictationEnabled else { return }
+            appendDictationEventLog("side_button_down button=\(buttonNumber)")
+            heldSideButtons.insert(buttonNumber)
+            sideButtonDownTimes[buttonNumber] = ProcessInfo.processInfo.systemUptime
+            replayNativeSideButtonClicks.insert(buttonNumber)
+            maybeToggleCenterButtonDictationClutch(triggeredBy: buttonNumber)
+
+        default:
+            return
+        }
+    }
+
+    private func handleSideButtonUp(_ buttonNumber: Int64, location: CGPoint) {
+        guard isEnabled, forwardButtonDictationEnabled else { return }
+
+        switch buttonNumber {
+        case Self.backSideButtonNumber, Self.forwardSideButtonNumber:
+            heldSideButtons.remove(buttonNumber)
+            sideButtonDownTimes.removeValue(forKey: buttonNumber)
+
+            if replayNativeSideButtonClicks.remove(buttonNumber) != nil {
+                monitor.replayNativeOtherMouseClick(buttonNumber: buttonNumber, location: location)
+                appendDictationEventLog("side_button_replayed_natively button=\(buttonNumber)")
+            }
+
+            if heldSideButtons.isEmpty {
+                sideButtonChordHandledForCurrentPress = false
+            }
+
+        case Self.centerMouseButtonNumber:
+            break
+
+        default:
+            return
+        }
+    }
+
+    private func maybeToggleCenterButtonDictationClutch(triggeredBy buttonNumber: Int64) {
+        guard !sideButtonChordHandledForCurrentPress else { return }
+
+        let counterpartButton = buttonNumber == Self.forwardSideButtonNumber
+            ? Self.backSideButtonNumber
+            : Self.forwardSideButtonNumber
+
+        guard heldSideButtons.contains(counterpartButton),
+              let triggeredAt = sideButtonDownTimes[buttonNumber],
+              let counterpartAt = sideButtonDownTimes[counterpartButton] else {
+            return
+        }
+
+        guard abs(triggeredAt - counterpartAt) <= Self.sideButtonClutchChordWindowSeconds else { return }
+
+        sideButtonChordHandledForCurrentPress = true
+        replayNativeSideButtonClicks.remove(Self.backSideButtonNumber)
+        replayNativeSideButtonClicks.remove(Self.forwardSideButtonNumber)
+        centerButtonDictationClutchEnabled.toggle()
+        if centerButtonDictationClutchEnabled {
+            windowsAutoScrollService.stop()
+        }
+        configureSideButtonCallback()
+
+        if centerButtonDictationClutchEnabled {
+            appendDictationEventLog("center_button_clutch enabled")
+            playClutchEnabledSound()
+            lastActionMessage = "Center-button dictation clutch enabled. Center click now toggles dictation."
+        } else {
+            appendDictationEventLog("center_button_clutch disabled")
+            playClutchDisabledSound()
+            lastActionMessage = "Center-button dictation clutch disabled. Center click is back to auto-scroll."
+        }
     }
 
     private func handleFootPedalDown() {
@@ -660,7 +835,7 @@ final class AppModel: ObservableObject {
 
     private func runScreenshot() {
         refreshPermissions()
-        disarmScreenshotAutoPaste()
+        windowsAutoScrollService.stop()
 
         guard !screenshotCaptureInProgress else {
             lastActionMessage = "A screenshot capture is already in progress."
@@ -680,23 +855,27 @@ final class AppModel: ObservableObject {
 
                 switch result {
                 case .success:
-                    self.armScreenshotAutoPaste()
-                    self.lastActionMessage = self.screenshotAutoPastePrompt()
+                    self.lastActionMessage = "Screenshot captured to clipboard."
                 case .failure(.cancelled):
-                    self.disarmScreenshotAutoPaste()
                     self.lastActionMessage = "Screenshot canceled."
                 case .failure(.alreadyRunning):
-                    self.disarmScreenshotAutoPaste()
                     self.lastActionMessage = "A screenshot capture is already in progress."
                 case .failure(.failed(let message)):
-                    self.disarmScreenshotAutoPaste()
                     self.lastActionMessage = "Screenshot failed: \(message)"
                 }
             }
         }
     }
 
-    private func runDictationFromForwardButton(armStopOnNextPrimaryClickAfterStart: Bool = false) {
+    private func runDictationFromCenterButtonClutch() {
+        runDictationToggle(triggerLabel: "center button")
+    }
+
+    private func runDictationFromForwardButton() {
+        runDictationToggle(triggerLabel: "dictation control")
+    }
+
+    private func runDictationToggle(triggerLabel: String) {
         let dictationLooksActive: Bool = switch dictationBackend {
         case .appleDictation:
             dictationLikelyActive
@@ -715,26 +894,27 @@ final class AppModel: ObservableObject {
         guard !dictationInProgress else { return }
         switch dictationBackend {
         case .appleDictation:
-            runAppleDictationFromForwardButton(armStopOnNextPrimaryClickAfterStart: armStopOnNextPrimaryClickAfterStart)
+            runAppleDictationToggle(triggerLabel: triggerLabel)
         case .whisperCpp:
-            runWhisperDictationFromForwardButton(armStopOnNextPrimaryClickAfterStart: armStopOnNextPrimaryClickAfterStart)
+            runWhisperDictationToggle(triggerLabel: triggerLabel)
         }
     }
 
-    private func runAppleDictationFromForwardButton(armStopOnNextPrimaryClickAfterStart: Bool) {
+    private func runAppleDictationToggle(triggerLabel: String) {
         guard ensureAccessibilityForAutomation(triggerLabel: "dictation shortcut") else { return }
         let wasLikelyActive = dictationLikelyActive
-        appendDictationEventLog("apple_dictation_toggle requested currently_active=\(wasLikelyActive ? 1 : 0)")
+        appendDictationEventLog(
+            "apple_dictation_toggle requested source=\(triggerLabel.replacingOccurrences(of: " ", with: "_")) currently_active=\(wasLikelyActive ? 1 : 0)"
+        )
 
         dictationInProgress = true
         if wasLikelyActive {
             dictationLikelyActive = false
             dictationActive = false
-            disarmScreenshotAutoDictationStop()
         }
         lastActionMessage = wasLikelyActive
-            ? "Stopping Apple Dictation via Forward button..."
-            : "Starting Apple Dictation via Forward button..."
+            ? "Stopping Apple Dictation via \(triggerLabel)..."
+            : "Starting Apple Dictation via \(triggerLabel)..."
         dictationService.toggleDictation { [weak self] result in
             Task { @MainActor [weak self] in
                 guard let self else { return }
@@ -744,22 +924,14 @@ final class AppModel: ObservableObject {
                     self.dictationLikelyActive = !wasLikelyActive
                     self.dictationActive = self.dictationLikelyActive
                     if wasLikelyActive {
-                        self.disarmScreenshotAutoDictationStop()
                         self.appendDictationEventLog("apple_dictation stopped")
                         self.cancelDictationAutoStop()
                         self.lastActionMessage = "Apple Dictation stopped. Sending Return..."
                         self.sendReturnAfterDictationStop()
                     } else {
-                        if armStopOnNextPrimaryClickAfterStart {
-                            self.armScreenshotAutoDictationStop()
-                        } else {
-                            self.disarmScreenshotAutoDictationStop()
-                        }
                         self.appendDictationEventLog("apple_dictation started")
                         self.scheduleDictationAutoStop(for: .appleDictation)
-                        self.lastActionMessage = armStopOnNextPrimaryClickAfterStart
-                            ? "Apple Dictation started. Next left click will stop it."
-                            : "Apple Dictation started (Forward side button)."
+                        self.lastActionMessage = "Apple Dictation started."
                     }
                 case .failure(.failed(let message)):
                     if wasLikelyActive {
@@ -773,7 +945,7 @@ final class AppModel: ObservableObject {
         }
     }
 
-    private func runWhisperDictationFromForwardButton(armStopOnNextPrimaryClickAfterStart: Bool) {
+    private func runWhisperDictationToggle(triggerLabel: String) {
         let currentlyRecording = whisperDictationService.isRecording
         let configuration = WhisperDictationService.Configuration(
             modelPreset: whisperModelPreset,
@@ -784,7 +956,7 @@ final class AppModel: ObservableObject {
             microphoneSelectionID: whisperMicrophoneSelectionID
         )
         appendDictationEventLog(
-            "whisper_toggle requested currently_recording=\(currentlyRecording ? 1 : 0) model=\(whisperModelPreset.rawValue) microphone_selection=\(whisperMicrophoneSelectionID)"
+            "whisper_toggle requested source=\(triggerLabel.replacingOccurrences(of: " ", with: "_")) currently_recording=\(currentlyRecording ? 1 : 0) model=\(whisperModelPreset.rawValue) microphone_selection=\(whisperMicrophoneSelectionID)"
         )
 
         if currentlyRecording {
@@ -793,15 +965,11 @@ final class AppModel: ObservableObject {
         }
 
         startWhisperDictationRecording(
-            configuration: configuration,
-            armStopOnNextPrimaryClickAfterStart: armStopOnNextPrimaryClickAfterStart
+            configuration: configuration
         )
     }
 
-    private func startWhisperDictationRecording(
-        configuration: WhisperDictationService.Configuration,
-        armStopOnNextPrimaryClickAfterStart: Bool
-    ) {
+    private func startWhisperDictationRecording(configuration: WhisperDictationService.Configuration) {
         dictationInProgress = true
         lastActionMessage = "Starting whisper.cpp recording (\(whisperModelPreset.displayName))..."
         appendDictationEventLog(
@@ -817,19 +985,11 @@ final class AppModel: ObservableObject {
                 switch result {
                 case .success(.started):
                     self.dictationActive = true
-                    if armStopOnNextPrimaryClickAfterStart {
-                        self.armScreenshotAutoDictationStop()
-                    } else {
-                        self.disarmScreenshotAutoDictationStop()
-                    }
                     self.appendDictationEventLog("whisper_recording started")
                     self.scheduleDictationAutoStop(for: .whisperCpp)
-                    self.lastActionMessage = armStopOnNextPrimaryClickAfterStart
-                        ? "whisper.cpp recording started. Next left click will stop and transcribe."
-                        : "whisper.cpp recording started. Press Forward again to stop and transcribe."
+                    self.lastActionMessage = "whisper.cpp recording started. Trigger dictation control again to stop and transcribe."
 
                 case .failure(.failed(let message)):
-                    self.disarmScreenshotAutoDictationStop()
                     self.dictationActive = self.whisperDictationService.isRecording
                     self.appendDictationEventLog("whisper_recording error=\(message)")
                     self.lastActionMessage = "whisper.cpp dictation failed: \(message)"
@@ -844,7 +1004,6 @@ final class AppModel: ObservableObject {
     private func stopWhisperDictationRecording() {
         dictationInProgress = true
         dictationActive = false
-        disarmScreenshotAutoDictationStop()
         lastActionMessage = "Stopping whisper.cpp recording and transcribing..."
 
         whisperDictationService.stopRecordingAndTranscribe { [weak self] result in
@@ -928,8 +1087,13 @@ final class AppModel: ObservableObject {
                     switch result {
                     case .success:
                         self.appendDictationEventLog("whisper_transcript pasted")
-                        self.lastActionMessage = "whisper.cpp transcript pasted. Sending Return..."
-                        self.sendReturnAfterWhisperTranscriptPaste()
+                        if self.shouldSendReturnAfterWhisperTranscript(trimmedTranscript) {
+                            self.lastActionMessage = "whisper.cpp transcript pasted. Sending Return..."
+                            self.sendReturnAfterWhisperTranscriptPaste()
+                        } else {
+                            self.appendDictationEventLog("whisper_transcript skipped_auto_return")
+                            self.lastActionMessage = "whisper.cpp transcript pasted without Return because no meaningful text was detected."
+                        }
                     case .failure(.failed(let message)):
                         self.appendDictationEventLog("whisper_transcript paste_error=\(message)")
                         self.lastActionMessage = "Transcript ready, but paste failed: \(message)"
@@ -940,6 +1104,12 @@ final class AppModel: ObservableObject {
     }
 
     private func handleEscapeKeyDown() {
+        if windowsAutoScrollService.isActive {
+            windowsAutoScrollService.stop()
+            lastActionMessage = "Auto-scroll stopped."
+            return
+        }
+
         let dictationLooksActive: Bool = switch dictationBackend {
         case .appleDictation:
             dictationLikelyActive
@@ -955,98 +1125,23 @@ final class AppModel: ObservableObject {
         runDictationFromForwardButton()
     }
 
-    private func handlePrimaryClickUp(_ location: CGPoint) {
-        if screenshotAutoPasteArmed {
-            handleScreenshotAutoPasteClickUp(location)
-            return
+    private func handlePrimaryClickDown() {
+        guard windowsAutoScrollService.isActive else { return }
+        windowsAutoScrollService.stop()
+        lastActionMessage = "Auto-scroll stopped."
+    }
+
+    private func windowTilerFailureMessage(_ error: WindowTilerService.TilingError) -> String {
+        switch error {
+        case .noFocusedApplication:
+            return "No frontmost app found for window movement."
+        case .noFocusedWindow:
+            return "No focused window found to move."
+        case .unsupportedWindow:
+            return "Focused window does not support move/resize."
+        case .cannotMoveWindow(let message):
+            return "Could not move window: \(message)"
         }
-
-        handleScreenshotAutoDictationStopClick()
-    }
-
-    private func handleScreenshotAutoPasteClickUp(_ location: CGPoint) {
-        guard !screenshotCaptureInProgress else { return }
-        guard !pasteInProgress else { return }
-
-        screenshotAutoPasteArmed = false
-        guard ensureAccessibilityForAutomation(triggerLabel: "screenshot auto-paste") else { return }
-
-        pasteInProgress = true
-        lastActionMessage = "Pasting screenshot into the clicked field..."
-        let clickX = Int(location.x.rounded())
-        let clickY = Int(location.y.rounded())
-
-        Task { @MainActor [weak self] in
-            guard let self else { return }
-
-            let nanoseconds = UInt64((Self.screenshotAutoPasteDelaySeconds * 1_000_000_000).rounded())
-            try? await Task.sleep(nanoseconds: nanoseconds)
-
-            self.pasteService.pasteClipboard { [weak self] result in
-                Task { @MainActor [weak self] in
-                    guard let self else { return }
-                    self.pasteInProgress = false
-
-                    switch result {
-                    case .success:
-                        if self.screenshotPasteStartsDictationActive {
-                            self.lastActionMessage = "Screenshot pasted after click at (\(clickX), \(clickY)). Starting dictation..."
-                            self.appendDictationEventLog("screenshot_auto_paste success action=start_dictation")
-                            self.runDictationFromForwardButton(armStopOnNextPrimaryClickAfterStart: true)
-                        } else {
-                            self.lastActionMessage = "Screenshot pasted after click at (\(clickX), \(clickY))."
-                        }
-                    case .failure(.failed(let message)):
-                        self.lastActionMessage = "Could not auto-paste screenshot: \(message)"
-                    }
-                }
-            }
-        }
-    }
-
-    private func armScreenshotAutoPaste() {
-        screenshotAutoPasteArmed = true
-        disarmScreenshotAutoDictationStop()
-    }
-
-    private func disarmScreenshotAutoPaste() {
-        screenshotAutoPasteArmed = false
-    }
-
-    private func armScreenshotAutoDictationStop() {
-        screenshotAutoDictationStopArmed = true
-    }
-
-    private func disarmScreenshotAutoDictationStop() {
-        screenshotAutoDictationStopArmed = false
-    }
-
-    private func screenshotAutoPastePrompt() -> String {
-        if screenshotPasteStartsDictationActive {
-            return "Screenshot captured. Click the target field to paste it and start dictation. The next left click will stop dictation."
-        }
-        return "Screenshot captured. Click the target field to paste it."
-    }
-
-    private func handleScreenshotAutoDictationStopClick() {
-        guard screenshotAutoDictationStopArmed else { return }
-        guard !dictationInProgress else { return }
-
-        let dictationLooksActive: Bool = switch dictationBackend {
-        case .appleDictation:
-            dictationLikelyActive
-        case .whisperCpp:
-            whisperDictationService.isRecording
-        }
-
-        guard dictationLooksActive else {
-            disarmScreenshotAutoDictationStop()
-            return
-        }
-
-        appendDictationEventLog("screenshot_auto_dictation_stop action=next_primary_click")
-        lastActionMessage = "Stopping dictation after next-click shortcut..."
-        runDictationFromForwardButton()
     }
 
     private func ensureAccessibilityForAutomation(triggerLabel: String) -> Bool {
@@ -1088,8 +1183,9 @@ final class AppModel: ObservableObject {
     }
 
     private func configureSideButtonCallback() {
-        var interceptedButtons: Set<Int64> = []
+        var interceptedButtons: Set<Int64> = [Self.centerMouseButtonNumber]
         if forwardButtonDictationEnabled {
+            interceptedButtons.insert(Self.backSideButtonNumber)
             interceptedButtons.insert(Self.forwardSideButtonNumber)
         }
 
@@ -1098,7 +1194,9 @@ final class AppModel: ObservableObject {
             monitor.onSideButtonDown = { [weak self] buttonNumber in
                 self?.handleSideButtonDown(buttonNumber)
             }
-            monitor.onSideButtonUp = nil
+            monitor.onSideButtonUp = { [weak self] buttonNumber, location in
+                self?.handleSideButtonUp(buttonNumber, location: location)
+            }
             monitor.onSideButtonDragged = nil
         } else {
             monitor.onSideButtonDown = nil
@@ -1207,31 +1305,31 @@ final class AppModel: ObservableObject {
     }
 
     private func monitorListeningStatusDescription() -> String {
-        let screenshotSegment = "screenshot (\(screenshotTriggerLabel))"
-        let screenshotPasteSegment = "click-to-paste after capture"
-        let screenshotAutoDictationSegment = "screenshot paste can auto-start dictation"
+        let screenshotSegment = "screenshot (\(screenshotTriggerLabel), clipboard-only)"
+        let keyboardSegment = "palm Ctrl shortcuts"
+        let windowSegment = "Ctrl+Alt+Arrow window tiling"
+        let autoScrollSegment = "center-click auto-scroll"
         let scrollSegment = reverseScrollingEnabled ? ", reversed scrolling" : ""
         let debugSegment = scrollEventLoggingEnabled ? ", scroll debug logging" : ""
         let dictationSegment = dictationListeningSegment()
-        let forwardSegment = dictationSegment
-
-        if screenshotPasteStartsDictationActive && forwardButtonDictationEnabled {
-            return "Listening for \(screenshotSegment), \(screenshotPasteSegment), \(forwardSegment), and \(screenshotAutoDictationSegment)\(scrollSegment)\(debugSegment)"
-        }
 
         if forwardButtonDictationEnabled {
-            return "Listening for \(screenshotSegment), \(screenshotPasteSegment), and \(forwardSegment)\(scrollSegment)\(debugSegment)"
+            return "Listening for \(screenshotSegment), \(keyboardSegment), \(windowSegment), \(autoScrollSegment), and \(dictationSegment)\(scrollSegment)\(debugSegment)"
         }
 
-        return "Listening for \(screenshotSegment) and \(screenshotPasteSegment)\(scrollSegment)\(debugSegment)"
+        return "Listening for \(screenshotSegment), \(keyboardSegment), \(windowSegment), and \(autoScrollSegment)\(scrollSegment)\(debugSegment)"
     }
 
     private func dictationListeningSegment() -> String {
         switch dictationBackend {
         case .appleDictation:
-            return "Forward button or foot pedal Apple Dictation toggle"
+            return centerButtonDictationClutchEnabled
+                ? "center-button dictation clutch or foot pedal Apple Dictation toggle"
+                : "Back+Forward clutch for center-button Apple Dictation toggle or foot pedal control"
         case .whisperCpp:
-            return "Forward button or foot pedal whisper.cpp (\(whisperModelPreset.displayName))"
+            return centerButtonDictationClutchEnabled
+                ? "center-button dictation clutch or foot pedal whisper.cpp (\(whisperModelPreset.displayName))"
+                : "Back+Forward clutch for center-button whisper.cpp (\(whisperModelPreset.displayName)) or foot pedal control"
         }
     }
 
@@ -1263,9 +1361,17 @@ final class AppModel: ObservableObject {
             "[ blank audio ]",
             "[silence]",
             "[ silence ]",
+            "(bell dings)",
+            "bell dings",
         ]
 
         return ignoredMarkers.contains(folded)
+    }
+
+    private func shouldSendReturnAfterWhisperTranscript(_ transcript: String) -> Bool {
+        let trimmed = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return false }
+        return trimmed.rangeOfCharacter(from: .alphanumerics) != nil
     }
 
     private func codexTextInputTarget() -> TextInputFocusService.Target? {
@@ -1379,6 +1485,14 @@ final class AppModel: ObservableObject {
         playSoundCue(.stop)
     }
 
+    private func playClutchEnabledSound() {
+        playSoundCue(.clutchOn)
+    }
+
+    private func playClutchDisabledSound() {
+        playSoundCue(.clutchOff)
+    }
+
     private func playSoundCue(_ cue: SoundCuePlayer.Cue) {
         let requestedAt = ProcessInfo.processInfo.systemUptime
         let idleMilliseconds: Int? = {
@@ -1444,7 +1558,6 @@ final class AppModel: ObservableObject {
                     case .success:
                         self.dictationLikelyActive = false
                         self.dictationActive = false
-                        self.disarmScreenshotAutoDictationStop()
                         self.lastActionMessage = "Apple Dictation auto-stopped after 20 seconds. Sending Return..."
                         self.sendReturnAfterDictationStop()
                     case .failure(.failed(let message)):
@@ -1456,7 +1569,7 @@ final class AppModel: ObservableObject {
         case .whisperCpp:
             guard whisperDictationService.isRecording, !dictationInProgress else { return }
             lastActionMessage = "whisper.cpp reached 20 seconds. Stopping automatically..."
-            runWhisperDictationFromForwardButton(armStopOnNextPrimaryClickAfterStart: false)
+            runWhisperDictationToggle(triggerLabel: "auto-stop")
         }
     }
 
