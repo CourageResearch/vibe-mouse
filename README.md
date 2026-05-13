@@ -5,7 +5,6 @@ Vibe Mouse is a macOS menu bar utility that maps mouse and keyboard chords to fa
 - screenshot capture to clipboard
 - palm-friendly Windows-style `Ctrl` shortcuts
 - center-click auto-scroll
-- Dictation toggle
 
 The app is built with SwiftUI/AppKit and runs as a menu bar extra (`LSUIElement`), so it stays lightweight and out of the Dock.
 
@@ -19,9 +18,9 @@ The app is built with SwiftUI/AppKit and runs as a menu bar extra (`LSUIElement`
   - `Ctrl+V`, `Ctrl+C`, `Ctrl+T`, `Ctrl+W`, and similar Windows muscle-memory shortcuts are translated to Mac `Command` shortcuts
   - `Ctrl+Tab` and `Ctrl+Shift+Tab` are left alone for browser tab cycling
   - `Ctrl+Alt+Left/Right/Up/Down` snaps the focused window like Windows
+  - Repeating `Ctrl+Alt+Left/Right` from a side snap throws the window to the neighboring monitor
   - `Ctrl+Alt+Shift+Left/Right` moves the focused window to the physically neighboring display
 - Center click toggles Windows-style auto-scroll
-- Back + Forward together toggles the dictation clutch; when the clutch is active, center click toggles Dictation instead of auto-scroll
 - Adjustable screenshot chord timing window (20-200 ms)
 - Menu bar status and a full Settings window for behavior + permissions
 
@@ -33,8 +32,6 @@ The app is built with SwiftUI/AppKit and runs as a menu bar extra (`LSUIElement`
   - Accessibility
   - Input Monitoring
   - Screen & System Audio Recording (Screen Recording)
-
-For Dictation integration, set the macOS Dictation shortcut to `Control + Option + Command + D`.
 
 ## Install (Prebuilt App)
 
@@ -68,12 +65,11 @@ Default actions:
 - `Ctrl+V`: paste the clipboard with Windows muscle memory
 - `Ctrl+Tab`: cycle browser tabs
 - `Ctrl+Alt+Left/Right`: snap the focused window to the left or right half
-- `Ctrl+Alt+Up`: maximize the focused window
-- `Ctrl+Alt+Down`: restore or snap the focused window downward
+- `Ctrl+Alt+Left/Right`, repeated from a side snap: move to the neighboring monitor
+- `Ctrl+Alt+Up`: maximize the focused window, or snap a side-snapped window to the top quarter
+- `Ctrl+Alt+Down`: restore from maximize, or snap a side-snapped window to the bottom quarter
 - `Ctrl+Alt+Shift+Left/Right`: move the focused window across monitors
 - `Center click`: toggle auto-scroll
-- `Back + Forward`: toggle the dictation clutch
-- `Center click`, while dictation clutch is active: toggle Dictation
 
 All shortcuts can be enabled/disabled in **Settings -> Behavior**.
 
@@ -127,7 +123,7 @@ Optional env var:
 
 ## Repo Layout
 
-- `Sources/VibeMouse/` - app code (UI, event tap monitor, screenshot/paste/dictation services)
+- `Sources/VibeMouse/` - app code (UI, event tap monitor, screenshot, auto-scroll, and window tiling services)
 - `scripts/dev-restart.sh` - local build/sign/restart helper
 - `INSTALL.md` - end-user install and troubleshooting notes
 - `dist/` - packaged app/release artifacts
@@ -137,4 +133,3 @@ Optional env var:
 - If shortcuts do not fire, verify all permissions and restart the app.
 - If monitor status says event tap is unavailable, re-check Accessibility + Input Monitoring and relaunch.
 - If screenshots fail, re-check Screen Recording permission.
-- If Dictation does not toggle, confirm the Dictation shortcut matches `Control + Option + Command + D`.

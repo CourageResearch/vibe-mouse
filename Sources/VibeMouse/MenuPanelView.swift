@@ -84,18 +84,10 @@ struct MenuPanelView: View {
     }
 
     private var shortcutSummaryText: String {
-        if model.forwardButtonDictationEnabled {
-            return "\(screenshotKeyboardCompactSummaryGesture) screenshot, Ctrl+Alt+Arrow windows, center auto-scroll, dictation clutch"
-        }
-
         return "\(screenshotKeyboardCompactSummaryGesture) screenshot, Ctrl+Alt+Arrow windows, center auto-scroll"
     }
 
     private var listeningSummaryText: String {
-        if model.forwardButtonDictationEnabled {
-            return "Listening for \(screenshotListeningGesture) screenshot, palm Ctrl shortcuts, Ctrl+Alt+Arrow window tiling, center-click auto-scroll, and the Back+Forward clutch for center-button dictation."
-        }
-
         return "Listening for \(screenshotListeningGesture) screenshot triggers, palm Ctrl shortcuts, Ctrl+Alt+Arrow window tiling, and center-click auto-scroll."
     }
 

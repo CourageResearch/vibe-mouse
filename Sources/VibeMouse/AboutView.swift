@@ -21,14 +21,14 @@ struct AboutView: View {
 
     private var heroCard: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Auto Arena")
+            Text("Vibe Mouse")
                 .font(.system(size: 30, weight: .semibold, design: .rounded))
 
-            Text("A prediction market for machine learning experiments.")
+            Text("A small macOS utility for mouse and keyboard shortcuts.")
                 .font(.title3)
                 .foregroundStyle(.secondary)
 
-            Text("The real bottleneck in ML research is not a shortage of ideas. It is deciding which ideas deserve compute.")
+            Text("It keeps Windows-style muscle memory available on macOS without reaching for awkward key combinations.")
                 .font(.body)
                 .foregroundStyle(.secondary)
         }
@@ -39,13 +39,13 @@ struct AboutView: View {
     private var workflowCard: some View {
         AboutCard(
             title: "How It Works",
-            subtitle: "Auto Arena turns experiment selection into a market that resolves on real training results."
+            subtitle: "Vibe Mouse listens for a small set of global shortcuts and translates them into focused desktop actions."
         ) {
             VStack(alignment: .leading, spacing: 12) {
-                WorkflowRow(step: "1", text: "Multiple AI models continuously propose training modifications.")
-                WorkflowRow(step: "2", text: "Each proposal enters a market where participants estimate probability of success.")
-                WorkflowRow(step: "3", text: "Proposals are ranked by market confidence, and the top one runs first.")
-                WorkflowRow(step: "4", text: "A five-minute training job runs on real hardware, and the outcome resolves the market.")
+                WorkflowRow(step: "1", text: "Left+Right or Caps Lock starts an interactive screenshot and copies the result to the clipboard.")
+                WorkflowRow(step: "2", text: "Palm Ctrl shortcuts map common Windows commands to the matching macOS Command shortcuts.")
+                WorkflowRow(step: "3", text: "Ctrl+Alt+Arrow snaps the focused window or moves it between neighboring monitors.")
+                WorkflowRow(step: "4", text: "Center click toggles Windows-style auto-scroll; Escape or left click stops it.")
             }
         }
     }
@@ -53,9 +53,9 @@ struct AboutView: View {
     private var valueCard: some View {
         AboutCard(
             title: "Why It Matters",
-            subtitle: "Spend compute where signal is highest."
+            subtitle: "Less finger travel, fewer mode switches."
         ) {
-            Text("Auto Arena replaces static decision queues with continuous price discovery, so teams can cheaply identify which ideas are worth testing before spending large amounts of compute.")
+            Text("The app is intentionally narrow: screenshots, window movement, auto-scroll, and keyboard remaps for a Windows-style external keyboard on macOS.")
                 .font(.body)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)

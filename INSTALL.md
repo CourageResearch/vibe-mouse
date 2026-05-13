@@ -61,26 +61,14 @@ Palm-friendly Windows-style shortcuts are translated while Vibe Mouse is enabled
 - **Ctrl + C**, **Ctrl + T**, **Ctrl + W**, and similar shortcuts map to their Mac Command equivalents.
 - **Ctrl + Tab** and **Ctrl + Shift + Tab** are left alone so Chrome can cycle tabs.
 - **Ctrl + Alt + Left/Right/Up/Down** snaps the focused window like Windows.
+- Repeating **Ctrl + Alt + Left/Right** from a side snap throws the window to the neighboring monitor.
 - **Ctrl + Alt + Shift + Left/Right** moves the focused window to the physically neighboring monitor.
 
 Mouse controls:
 
 - **Center click** toggles Windows-style auto-scroll.
 - **Left click** stops auto-scroll when it is active.
-- **Back + Forward side buttons together** toggles the dictation clutch.
-- When the dictation clutch is active, **center click** toggles Dictation instead of auto-scroll.
-- Back and Forward side buttons still pass through normally when pressed alone.
-- When Apple Dictation is toggled off from Vibe Mouse, it automatically sends **Return**.
-
-## Configure Dictation Shortcut
-
-Set macOS Dictation to use this shortcut so Vibe Mouse can toggle it:
-
-1. Open **System Settings → Keyboard → Dictation**
-2. Ensure Dictation is turned on
-3. Set Dictation shortcut to **Control + Option + Command + D**
-
-Vibe Mouse sends that shortcut when you use the dictation clutch, the foot pedal, or another configured dictation trigger.
+- Back and Forward side buttons pass through normally.
 
 ## If The App Is Not Listed In macOS Permission Pickers
 

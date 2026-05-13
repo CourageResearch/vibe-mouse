@@ -15,17 +15,6 @@ final class MouseChordMonitor {
         case moveDisplayRight
     }
 
-    struct ModifiedArrowKeySample: Sendable {
-        let keyCode: Int64
-        let flagsRawValue: UInt64
-        let hasControl: Bool
-        let hasAlternate: Bool
-        let hasCommand: Bool
-        let hasShift: Bool
-        let hasFn: Bool
-        let matched: Bool
-    }
-
     struct ScrollDebugSample: Sendable {
         let timestamp: TimeInterval
         let reverseEnabled: Bool
@@ -61,13 +50,9 @@ final class MouseChordMonitor {
         }
     }
     var onSideButtonDown: (@MainActor @Sendable (_ buttonNumber: Int64) -> Void)?
-    var onSideButtonUp: (@MainActor @Sendable (_ buttonNumber: Int64, _ location: CGPoint) -> Void)?
-    var onSideButtonDragged: (@MainActor @Sendable (_ buttonNumber: Int64, _ location: CGPoint) -> Void)?
     var onPrimaryClickDown: (@MainActor @Sendable () -> Void)?
     var onWindowArrowShortcut: (@MainActor @Sendable (_ shortcut: WindowArrowShortcut) -> Void)?
-    var onModifiedArrowKey: (@MainActor @Sendable (_ sample: ModifiedArrowKeySample) -> Void)?
     var onScrollDebugSample: (@MainActor @Sendable (_ sample: ScrollDebugSample) -> Void)?
-    var shouldSuppressKeyEvent: ((_ keyCode: Int64, _ type: CGEventType) -> Bool)?
     var shouldSuppressPrimaryClick: (() -> Bool)?
     var palmControlShortcutRemappingEnabled = true
     var interceptedSideMouseButtons: Set<Int64> = []
@@ -77,8 +62,6 @@ final class MouseChordMonitor {
     var minimumTriggerIntervalSeconds: TimeInterval = 0.20
     var releasePollIntervalSeconds: TimeInterval = 0.005
     var maximumReleaseWaitSeconds: TimeInterval = 0.50
-
-    private static let syntheticOtherMouseEventUserData: Int64 = 0x564942454D4F5553
 
     private var eventTap: CFMachPort?
     private var runLoopSource: CFRunLoopSource?
@@ -104,7 +87,7 @@ final class MouseChordMonitor {
     private var didApplyCapsLockLockingOverride = false
     private var originalCapsLockDoesLockValue: UInt32?
 
-    private let supportedSideMouseButtons: Set<Int64> = [2, 3, 4]
+    private let supportedSideMouseButtons: Set<Int64> = [2]
     private let palmControlCommandKeyCodes: Set<Int64> = [
         Int64(kVK_ANSI_A),
         Int64(kVK_ANSI_B),
@@ -230,10 +213,6 @@ final class MouseChordMonitor {
     }
 
     private func handleEvent(type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
-        if event.getIntegerValueField(.eventSourceUserData) == Self.syntheticOtherMouseEventUserData {
-            return Unmanaged.passUnretained(event)
-        }
-
         if type.rawValue == nxSystemDefinedEventTypeRawValue {
             return handleSystemDefinedEvent(event)
         }
@@ -333,9 +312,8 @@ final class MouseChordMonitor {
         let buttonNumber = event.getIntegerValueField(.mouseEventButtonNumber)
 
         if supportedSideMouseButtons.contains(buttonNumber) {
-            let hasHandler = onSideButtonDown != nil || onSideButtonUp != nil || onSideButtonDragged != nil
             guard interceptedSideMouseButtons.contains(buttonNumber),
-                  hasHandler else {
+                  onSideButtonDown != nil else {
                 return Unmanaged.passUnretained(event)
             }
 
@@ -358,7 +336,6 @@ final class MouseChordMonitor {
 
         if suppressedSideButtons.contains(buttonNumber) {
             suppressedSideButtons.remove(buttonNumber)
-            dispatchSideButtonUpTrigger(buttonNumber: buttonNumber, location: event.location)
             return nil
         }
 
@@ -369,35 +346,10 @@ final class MouseChordMonitor {
         let buttonNumber = event.getIntegerValueField(.mouseEventButtonNumber)
 
         if suppressedSideButtons.contains(buttonNumber) {
-            dispatchSideButtonDraggedTrigger(buttonNumber: buttonNumber, location: event.location)
             return nil
         }
 
         return Unmanaged.passUnretained(event)
-    }
-
-    func replayNativeOtherMouseClick(buttonNumber: Int64, location: CGPoint) {
-        guard let mouseButton = CGMouseButton(rawValue: UInt32(buttonNumber)) else { return }
-        guard let source = CGEventSource(stateID: .combinedSessionState) else { return }
-        guard let downEvent = CGEvent(
-            mouseEventSource: source,
-            mouseType: .otherMouseDown,
-            mouseCursorPosition: location,
-            mouseButton: mouseButton
-        ), let upEvent = CGEvent(
-            mouseEventSource: source,
-            mouseType: .otherMouseUp,
-            mouseCursorPosition: location,
-            mouseButton: mouseButton
-        ) else {
-            return
-        }
-
-        for event in [downEvent, upEvent] {
-            event.setIntegerValueField(.mouseEventButtonNumber, value: buttonNumber)
-            event.setIntegerValueField(.eventSourceUserData, value: Self.syntheticOtherMouseEventUserData)
-            event.post(tap: .cghidEventTap)
-        }
     }
 
     private func handleScrollWheel(_ event: CGEvent) -> Unmanaged<CGEvent>? {
@@ -509,16 +461,8 @@ final class MouseChordMonitor {
         let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
         let isAutoRepeat = event.getIntegerValueField(.keyboardEventAutorepeat) != 0
 
-        if shouldSuppressKeyEvent?(keyCode, .keyDown) == true {
-            return nil
-        }
-
         if handleWindowArrowShortcutIfNeeded(event, keyCode: keyCode, isAutoRepeat: isAutoRepeat) {
             return nil
-        }
-
-        if !isAutoRepeat {
-            dispatchUnmatchedModifiedArrowIfNeeded(event, keyCode: keyCode)
         }
 
         if remapPalmControlShortcutIfNeeded(event, keyCode: keyCode) {
@@ -567,10 +511,6 @@ final class MouseChordMonitor {
     private func handleKeyUp(_ event: CGEvent) -> Unmanaged<CGEvent>? {
         let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
 
-        if shouldSuppressKeyEvent?(keyCode, .keyUp) == true {
-            return nil
-        }
-
         if suppressedWindowArrowKeyUps.remove(keyCode) != nil {
             return nil
         }
@@ -604,7 +544,6 @@ final class MouseChordMonitor {
         guard let shortcut = windowArrowShortcut(for: event, keyCode: keyCode) else { return false }
         suppressedWindowArrowKeyUps.insert(keyCode)
         if !isAutoRepeat {
-            dispatchModifiedArrowKey(event, keyCode: keyCode, matched: true)
             dispatchWindowArrowShortcut(shortcut)
         }
         return true
@@ -638,37 +577,6 @@ final class MouseChordMonitor {
             return wantsDisplayMove ? nil : .down
         default:
             return nil
-        }
-    }
-
-    private func dispatchUnmatchedModifiedArrowIfNeeded(_ event: CGEvent, keyCode: Int64) {
-        guard isArrowKey(keyCode) else { return }
-        let flags = event.flags
-        guard flags.contains(.maskControl)
-            || flags.contains(.maskAlternate)
-            || flags.contains(.maskCommand)
-            || flags.contains(.maskShift) else {
-            return
-        }
-        dispatchModifiedArrowKey(event, keyCode: keyCode, matched: false)
-    }
-
-    private func dispatchModifiedArrowKey(_ event: CGEvent, keyCode: Int64, matched: Bool) {
-        let callback = onModifiedArrowKey
-        guard callback != nil else { return }
-        let flags = event.flags
-        let sample = ModifiedArrowKeySample(
-            keyCode: keyCode,
-            flagsRawValue: flags.rawValue,
-            hasControl: flags.contains(.maskControl),
-            hasAlternate: flags.contains(.maskAlternate),
-            hasCommand: flags.contains(.maskCommand),
-            hasShift: flags.contains(.maskShift),
-            hasFn: flags.contains(.maskSecondaryFn),
-            matched: matched
-        )
-        Task { @MainActor in
-            callback?(sample)
         }
     }
 
@@ -1026,20 +934,6 @@ final class MouseChordMonitor {
         let callback = onSideButtonDown
         Task { @MainActor in
             callback?(buttonNumber)
-        }
-    }
-
-    private func dispatchSideButtonUpTrigger(buttonNumber: Int64, location: CGPoint) {
-        let callback = onSideButtonUp
-        Task { @MainActor in
-            callback?(buttonNumber, location)
-        }
-    }
-
-    private func dispatchSideButtonDraggedTrigger(buttonNumber: Int64, location: CGPoint) {
-        let callback = onSideButtonDragged
-        Task { @MainActor in
-            callback?(buttonNumber, location)
         }
     }
 

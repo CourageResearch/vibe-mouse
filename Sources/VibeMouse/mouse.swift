@@ -24,7 +24,7 @@ struct VibeMouseApp: App {
                 .frame(minWidth: 760, idealWidth: 820, minHeight: 620, idealHeight: 700)
         }
 
-        Window("About Auto Arena", id: "about") {
+        Window("About Vibe Mouse", id: "about") {
             AboutView()
                 .frame(minWidth: 760, idealWidth: 820, minHeight: 560, idealHeight: 620)
         }
