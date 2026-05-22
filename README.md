@@ -14,13 +14,16 @@ The app is built with SwiftUI/AppKit and runs as a menu bar extra (`LSUIElement`
   - Left click + Right click chord
   - Caps Lock (optional, enabled by default)
 - Screenshots are copied to the clipboard without auto-pasting
-- Palm-friendly keyboard remaps:
+- Palm-friendly keyboard and click remaps:
+  - `Alt+Space` is translated to `Command+Space` for Spotlight
   - `Ctrl+V`, `Ctrl+C`, `Ctrl+T`, `Ctrl+W`, and similar Windows muscle-memory shortcuts are translated to Mac `Command` shortcuts
+  - `Ctrl+left-click` is translated to `Command+left-click` for opening links in Chrome-style browsers
+  - `Ctrl+Delete` is translated to `Option+Delete` for deleting one word at a time
   - `Ctrl+Tab` and `Ctrl+Shift+Tab` are left alone for browser tab cycling
-  - `Ctrl+Alt+Left/Right/Up/Down` snaps the focused window like Windows
-  - Repeating `Ctrl+Alt+Left/Right` from a side snap throws the window to the neighboring monitor
-  - `Ctrl+Alt+Shift+Left/Right` moves the focused window to the physically neighboring display
-- Center click toggles Windows-style auto-scroll
+  - `Ctrl+Left/Right/Up/Down` or `Fn/Globe+Left/Right/Up/Down` snaps the focused window like Windows
+  - Repeating `Ctrl+Left/Right` from a side snap throws the window to the neighboring monitor
+  - `Ctrl+Shift+Left/Right` or `Fn/Globe+Shift+Left/Right` moves the focused window to the physically neighboring display
+- Center click toggles Windows-style auto-scroll; farther from the anchor scrolls faster
 - Adjustable screenshot chord timing window (20-200 ms)
 - Menu bar status and a full Settings window for behavior + permissions
 
@@ -62,14 +65,20 @@ If the app is not listed in a macOS privacy pane, use the `+` button and add `Vi
 Default actions:
 
 - `Caps Lock` or `Left + Right mouse chord`: start interactive screenshot capture
+- `Alt+Space`: open Spotlight with Command+Space behavior
 - `Ctrl+V`: paste the clipboard with Windows muscle memory
+- `Ctrl+left-click`: open links with Command-click behavior
+- `Ctrl+Delete`: delete the previous word
 - `Ctrl+Tab`: cycle browser tabs
-- `Ctrl+Alt+Left/Right`: snap the focused window to the left or right half
-- `Ctrl+Alt+Left/Right`, repeated from a side snap: move to the neighboring monitor
-- `Ctrl+Alt+Up`: maximize the focused window, or snap a side-snapped window to the top quarter
-- `Ctrl+Alt+Down`: restore from maximize, or snap a side-snapped window to the bottom quarter
-- `Ctrl+Alt+Shift+Left/Right`: move the focused window across monitors
-- `Center click`: toggle auto-scroll
+- `Ctrl+Left/Right`: snap the focused window to the left or right half
+- `Fn/Globe+Left/Right`: snap the focused window to the left or right half on laptop keyboards
+- `Ctrl+Left/Right`, repeated from a side snap: move to the neighboring monitor
+- `Fn/Globe+Left/Right`, repeated from a side snap: move to the neighboring monitor
+- `Ctrl+Up` or `Fn/Globe+Up`: maximize the focused window, or snap a side-snapped window to the top quarter
+- `Ctrl+Down` or `Fn/Globe+Down`: restore from maximize, or snap a side-snapped window to the bottom quarter
+- `Ctrl+Shift+Left/Right`: move the focused window across monitors
+- `Fn/Globe+Shift+Left/Right`: move the focused window across monitors on laptop keyboards
+- `Center click`: toggle auto-scroll; farther from the anchor scrolls faster
 
 All shortcuts can be enabled/disabled in **Settings -> Behavior**.
 

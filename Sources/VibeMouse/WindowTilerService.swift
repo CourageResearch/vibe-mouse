@@ -31,7 +31,7 @@ final class WindowTilerService {
         let visibleFrame: CGRect
     }
 
-    private static let repeatedHorizontalShortcutWindowSeconds: TimeInterval = 1.4
+    private static let repeatedHorizontalShortcutWindowSeconds: TimeInterval = 2.25
 
     private var lastHorizontalSnap: LastHorizontalSnap?
 

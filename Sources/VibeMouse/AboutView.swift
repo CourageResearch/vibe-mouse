@@ -43,9 +43,9 @@ struct AboutView: View {
         ) {
             VStack(alignment: .leading, spacing: 12) {
                 WorkflowRow(step: "1", text: "Left+Right or Caps Lock starts an interactive screenshot and copies the result to the clipboard.")
-                WorkflowRow(step: "2", text: "Palm Ctrl shortcuts map common Windows commands to the matching macOS Command shortcuts.")
-                WorkflowRow(step: "3", text: "Ctrl+Alt+Arrow snaps the focused window or moves it between neighboring monitors.")
-                WorkflowRow(step: "4", text: "Center click toggles Windows-style auto-scroll; Escape or left click stops it.")
+                WorkflowRow(step: "2", text: "Alt+Space opens Spotlight; palm Ctrl maps common Windows commands, link opening, and word-delete.")
+                WorkflowRow(step: "3", text: "Fn/Globe+Arrow or Ctrl+Arrow snaps the focused window; add Shift+Left/Right to move monitors.")
+                WorkflowRow(step: "4", text: "Center click toggles Windows-style auto-scroll; farther from the anchor scrolls faster.")
             }
         }
     }
@@ -55,7 +55,7 @@ struct AboutView: View {
             title: "Why It Matters",
             subtitle: "Less finger travel, fewer mode switches."
         ) {
-            Text("The app is intentionally narrow: screenshots, window movement, auto-scroll, and keyboard remaps for a Windows-style external keyboard on macOS.")
+            Text("The app is intentionally narrow: screenshots, window movement, auto-scroll, and palm Ctrl remaps for a Windows-style external keyboard on macOS.")
                 .font(.body)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)

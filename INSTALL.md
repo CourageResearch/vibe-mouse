@@ -57,16 +57,20 @@ If you want normal Caps Lock behavior, disable **Settings → Behavior → Use C
 
 Palm-friendly Windows-style shortcuts are translated while Vibe Mouse is enabled:
 
+- **Alt + Space** opens Spotlight with macOS Command+Space behavior.
 - **Ctrl + V** pastes with macOS Command+V.
 - **Ctrl + C**, **Ctrl + T**, **Ctrl + W**, and similar shortcuts map to their Mac Command equivalents.
+- **Ctrl + left click** opens links with macOS Command-click behavior.
+- **Ctrl + Delete** deletes the previous word with macOS Option+Delete behavior.
 - **Ctrl + Tab** and **Ctrl + Shift + Tab** are left alone so Chrome can cycle tabs.
-- **Ctrl + Alt + Left/Right/Up/Down** snaps the focused window like Windows.
-- Repeating **Ctrl + Alt + Left/Right** from a side snap throws the window to the neighboring monitor.
-- **Ctrl + Alt + Shift + Left/Right** moves the focused window to the physically neighboring monitor.
+- **Ctrl + Left/Right/Up/Down** or **Fn/Globe + Left/Right/Up/Down** snaps the focused window like Windows.
+- Repeating **Ctrl + Left/Right** from a side snap throws the window to the neighboring monitor.
+- Repeating **Fn/Globe + Left/Right** from a side snap throws the window to the neighboring monitor.
+- **Ctrl + Shift + Left/Right** or **Fn/Globe + Shift + Left/Right** moves the focused window to the physically neighboring monitor.
 
 Mouse controls:
 
-- **Center click** toggles Windows-style auto-scroll.
+- **Center click** toggles Windows-style auto-scroll; farther from the anchor scrolls faster.
 - **Left click** stops auto-scroll when it is active.
 - Back and Forward side buttons pass through normally.
 

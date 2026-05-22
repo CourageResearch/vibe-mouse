@@ -86,11 +86,11 @@ struct SettingsView: View {
     }
 
     private var keyboardLegendDetail: String {
-        "Use Windows muscle memory for common Mac commands."
+        "Use Windows muscle memory for Spotlight, Mac commands, links, and word-delete."
     }
 
     private var windowLegendGesture: String {
-        "Ctrl+Alt+Arrow"
+        "Fn/Globe+Arrow"
     }
 
     private var windowLegendDetail: String {
@@ -102,7 +102,7 @@ struct SettingsView: View {
     }
 
     private var autoScrollLegendDetail: String {
-        "Toggle Windows-style auto-scroll; Escape or left click stops it."
+        "Move farther from the anchor to scroll faster; Escape or left click stops it."
     }
 
     private var headerCard: some View {
@@ -124,7 +124,7 @@ struct SettingsView: View {
                 }
 
                 Text(
-                    "Global shortcuts: \(keyboardCaptureSummary) capture to clipboard, palm Ctrl shortcuts, Ctrl+Alt+Arrow window tiling across monitors, and center-click auto-scroll."
+                    "Global shortcuts: \(keyboardCaptureSummary) capture to clipboard, Alt+Space Spotlight, palm Ctrl shortcuts, Ctrl-click links, Ctrl+Delete word-delete, Ctrl+Arrow or Fn/Globe+Arrow window tiling across monitors, and center-click auto-scroll."
                 )
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
@@ -217,7 +217,7 @@ struct SettingsView: View {
                         Text("Enable mouse shortcuts")
                             .font(.headline)
                         Text(
-                            "When enabled, the app listens globally for screenshot capture (\(screenshotListeningLegend)), palm Ctrl shortcuts, Ctrl+Alt+Arrow window tiling, and center-click auto-scroll."
+                            "When enabled, the app listens globally for screenshot capture (\(screenshotListeningLegend)), Alt+Space Spotlight, palm Ctrl shortcuts, Ctrl-click links, Ctrl+Delete word-delete, Ctrl+Arrow or Fn/Globe+Arrow window tiling, and center-click auto-scroll."
                         )
                             .font(.caption)
                             .foregroundStyle(.secondary)

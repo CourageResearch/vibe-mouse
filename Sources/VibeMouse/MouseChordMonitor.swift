@@ -236,6 +236,7 @@ final class MouseChordMonitor {
             if maybeTriggerChord() {
                 return nil
             }
+            _ = remapPalmControlMouseShortcutIfNeeded(event)
             return Unmanaged.passUnretained(event)
 
         case .rightMouseDown:
@@ -254,6 +255,9 @@ final class MouseChordMonitor {
             leftDown = false
             let shouldSuppress = suppressUntilButtonsUp
             resetIfIdle()
+            if !shouldSuppress {
+                _ = remapPalmControlMouseShortcutIfNeeded(event)
+            }
             return shouldSuppress ? nil : Unmanaged.passUnretained(event)
 
         case .rightMouseUp:
@@ -262,7 +266,13 @@ final class MouseChordMonitor {
             resetIfIdle()
             return shouldSuppress ? nil : Unmanaged.passUnretained(event)
 
-        case .leftMouseDragged, .rightMouseDragged:
+        case .leftMouseDragged:
+            if !suppressUntilButtonsUp {
+                _ = remapPalmControlMouseShortcutIfNeeded(event)
+            }
+            return suppressUntilButtonsUp ? nil : Unmanaged.passUnretained(event)
+
+        case .rightMouseDragged:
             return suppressUntilButtonsUp ? nil : Unmanaged.passUnretained(event)
 
         case .scrollWheel:
@@ -465,6 +475,10 @@ final class MouseChordMonitor {
             return nil
         }
 
+        if remapAltSpaceShortcutIfNeeded(event, keyCode: keyCode) {
+            return Unmanaged.passUnretained(event)
+        }
+
         if remapPalmControlShortcutIfNeeded(event, keyCode: keyCode) {
             return Unmanaged.passUnretained(event)
         }
@@ -515,6 +529,10 @@ final class MouseChordMonitor {
             return nil
         }
 
+        if remapAltSpaceShortcutIfNeeded(event, keyCode: keyCode) {
+            return Unmanaged.passUnretained(event)
+        }
+
         if remapPalmControlShortcutIfNeeded(event, keyCode: keyCode) {
             return Unmanaged.passUnretained(event)
         }
@@ -551,20 +569,55 @@ final class MouseChordMonitor {
 
     private func windowArrowShortcut(for event: CGEvent, keyCode: Int64) -> WindowArrowShortcut? {
         guard onWindowArrowShortcut != nil else { return nil }
-        guard isArrowKey(keyCode) else {
-            return nil
-        }
 
         let flags = event.flags
         let hasControl = flags.contains(.maskControl)
         let hasCommand = flags.contains(.maskCommand)
         let hasAlternate = flags.contains(.maskAlternate)
-        let usesControlAlt = hasControl && (hasAlternate || hasCommand)
-        let usesWindowsKey = hasCommand && !hasControl && !hasAlternate
-        guard usesControlAlt || usesWindowsKey else {
-            return nil
+        let hasFunction = flags.contains(.maskSecondaryFn)
+
+        if hasControl, !hasCommand, !hasAlternate {
+            return windowArrowShortcut(forArrowKeyCode: keyCode, flags: flags)
         }
 
+        if hasFunction, !hasControl, !hasCommand, !hasAlternate {
+            return windowArrowShortcut(forFnKeyCode: keyCode, flags: flags)
+        }
+
+        return nil
+    }
+
+    private func isArrowKey(_ keyCode: Int64) -> Bool {
+        keyCode == Int64(kVK_LeftArrow)
+            || keyCode == Int64(kVK_RightArrow)
+            || keyCode == Int64(kVK_UpArrow)
+            || keyCode == Int64(kVK_DownArrow)
+    }
+
+    private func windowArrowShortcut(forArrowKeyCode keyCode: Int64, flags: CGEventFlags) -> WindowArrowShortcut? {
+        guard isArrowKey(keyCode) else { return nil }
+        return windowArrowShortcut(forLogicalDirectionKeyCode: keyCode, flags: flags)
+    }
+
+    private func windowArrowShortcut(forFnKeyCode keyCode: Int64, flags: CGEventFlags) -> WindowArrowShortcut? {
+        switch keyCode {
+        case Int64(kVK_Home):
+            return windowArrowShortcut(forLogicalDirectionKeyCode: Int64(kVK_LeftArrow), flags: flags)
+        case Int64(kVK_End):
+            return windowArrowShortcut(forLogicalDirectionKeyCode: Int64(kVK_RightArrow), flags: flags)
+        case Int64(kVK_PageUp):
+            return windowArrowShortcut(forLogicalDirectionKeyCode: Int64(kVK_UpArrow), flags: flags)
+        case Int64(kVK_PageDown):
+            return windowArrowShortcut(forLogicalDirectionKeyCode: Int64(kVK_DownArrow), flags: flags)
+        default:
+            return nil
+        }
+    }
+
+    private func windowArrowShortcut(
+        forLogicalDirectionKeyCode keyCode: Int64,
+        flags: CGEventFlags
+    ) -> WindowArrowShortcut? {
         let wantsDisplayMove = flags.contains(.maskShift)
         switch keyCode {
         case Int64(kVK_LeftArrow):
@@ -580,41 +633,73 @@ final class MouseChordMonitor {
         }
     }
 
-    private func isArrowKey(_ keyCode: Int64) -> Bool {
-        keyCode == Int64(kVK_LeftArrow)
-            || keyCode == Int64(kVK_RightArrow)
-            || keyCode == Int64(kVK_UpArrow)
-            || keyCode == Int64(kVK_DownArrow)
+    private func remapAltSpaceShortcutIfNeeded(_ event: CGEvent, keyCode: Int64) -> Bool {
+        guard keyCode == Int64(kVK_Space) else { return false }
+
+        let flags = event.flags
+        guard flags.contains(.maskAlternate),
+              !flags.contains(.maskControl),
+              !flags.contains(.maskCommand),
+              !flags.contains(.maskSecondaryFn) else {
+            return false
+        }
+
+        var remappedFlags = flags
+        remappedFlags.remove(.maskAlternate)
+        remappedFlags.insert(.maskCommand)
+        event.flags = remappedFlags
+        return true
     }
 
     private func remapPalmControlShortcutIfNeeded(_ event: CGEvent, keyCode: Int64) -> Bool {
         guard palmControlShortcutRemappingEnabled else { return false }
 
-        let flags = event.flags
-        guard flags.contains(.maskControl),
-              !flags.contains(.maskCommand),
-              !flags.contains(.maskAlternate),
-              !flags.contains(.maskSecondaryFn) else {
-            return false
+        guard let baseFlags = palmControlBaseFlags(from: event.flags) else { return false }
+
+        if keyCode == Int64(kVK_Delete) || keyCode == Int64(kVK_ForwardDelete) {
+            var wordDeleteFlags = baseFlags
+            wordDeleteFlags.insert(.maskAlternate)
+            event.flags = wordDeleteFlags
+            return true
         }
 
+        var remappedFlags = baseFlags
+        remappedFlags.insert(.maskCommand)
+
         if keyCode == Int64(kVK_ANSI_Y) {
-            var remappedFlags = flags
-            remappedFlags.remove(.maskControl)
-            remappedFlags.insert(.maskCommand)
-            remappedFlags.insert(.maskShift)
-            event.flags = remappedFlags
+            var redoFlags = remappedFlags
+            redoFlags.insert(.maskShift)
+            event.flags = redoFlags
             event.setIntegerValueField(.keyboardEventKeycode, value: Int64(kVK_ANSI_Z))
             return true
         }
 
         guard palmControlCommandKeyCodes.contains(keyCode) else { return false }
 
-        var remappedFlags = flags
-        remappedFlags.remove(.maskControl)
+        event.flags = remappedFlags
+        return true
+    }
+
+    private func remapPalmControlMouseShortcutIfNeeded(_ event: CGEvent) -> Bool {
+        guard palmControlShortcutRemappingEnabled else { return false }
+        guard var remappedFlags = palmControlBaseFlags(from: event.flags) else { return false }
+
         remappedFlags.insert(.maskCommand)
         event.flags = remappedFlags
         return true
+    }
+
+    private func palmControlBaseFlags(from flags: CGEventFlags) -> CGEventFlags? {
+        guard flags.contains(.maskControl),
+              !flags.contains(.maskCommand),
+              !flags.contains(.maskAlternate),
+              !flags.contains(.maskSecondaryFn) else {
+            return nil
+        }
+
+        var baseFlags = flags
+        baseFlags.remove(.maskControl)
+        return baseFlags
     }
 
     private func handleSystemDefinedEvent(_ event: CGEvent) -> Unmanaged<CGEvent>? {

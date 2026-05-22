@@ -84,11 +84,11 @@ struct MenuPanelView: View {
     }
 
     private var shortcutSummaryText: String {
-        return "\(screenshotKeyboardCompactSummaryGesture) screenshot, Ctrl+Alt+Arrow windows, center auto-scroll"
+        return "\(screenshotKeyboardCompactSummaryGesture) screenshot, Ctrl-click links, Fn/Globe arrows"
     }
 
     private var listeningSummaryText: String {
-        return "Listening for \(screenshotListeningGesture) screenshot triggers, palm Ctrl shortcuts, Ctrl+Alt+Arrow window tiling, and center-click auto-scroll."
+        return "Listening for \(screenshotListeningGesture) screenshot triggers, Alt+Space Spotlight, palm Ctrl shortcuts, Ctrl-click links, Ctrl+Delete word-delete, Ctrl+Arrow or Fn/Globe+Arrow window tiling, and center-click auto-scroll."
     }
 
     private var screenshotKeyboardSummaryGesture: String {

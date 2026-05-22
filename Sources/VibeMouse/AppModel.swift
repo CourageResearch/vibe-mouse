@@ -430,7 +430,7 @@ final class AppModel: ObservableObject {
 
         windowsAutoScrollService.toggle(at: NSEvent.mouseLocation)
         lastActionMessage = windowsAutoScrollService.isActive
-            ? "Auto-scroll active. Move the mouse up/down; center click or Escape stops it."
+            ? "Auto-scroll active. Move farther from the anchor to scroll faster; center click or Escape stops it."
             : "Auto-scroll stopped."
     }
 
@@ -588,8 +588,8 @@ final class AppModel: ObservableObject {
 
     private func monitorListeningStatusDescription() -> String {
         let screenshotSegment = "screenshot (\(screenshotTriggerLabel), clipboard-only)"
-        let keyboardSegment = "palm Ctrl shortcuts"
-        let windowSegment = "Ctrl+Alt+Arrow window tiling"
+        let keyboardSegment = "Alt+Space Spotlight, palm Ctrl shortcuts, Ctrl-click links, and Ctrl+Delete word-delete"
+        let windowSegment = "Ctrl+Arrow or Fn/Globe+Arrow window tiling"
         let autoScrollSegment = "center-click auto-scroll"
         let scrollSegment = reverseScrollingEnabled ? ", reversed scrolling" : ""
         let debugSegment = scrollEventLoggingEnabled ? ", scroll debug logging" : ""

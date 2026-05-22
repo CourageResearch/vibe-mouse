@@ -8,7 +8,9 @@ final class WindowsAutoScrollService {
     private var anchorPoint: CGPoint?
     private var fractionalScrollRemainder: CGFloat = 0
     private let deadZone: CGFloat = 18
-    private let maximumLinesPerTick: CGFloat = 5
+    private let maximumScrollEventsPerTick: CGFloat = 14
+    private let linesPerScrollEvent: Int32 = 3
+    private let fullSpeedDistance: CGFloat = 420
 
     var isActive: Bool {
         anchorPoint != nil
@@ -49,19 +51,28 @@ final class WindowsAutoScrollService {
 
         let mouseLocation = NSEvent.mouseLocation
         let verticalDistance = mouseLocation.y - anchorPoint.y
-        guard abs(verticalDistance) > deadZone else { return }
+        let distanceBeyondDeadZone = abs(verticalDistance) - deadZone
+        guard distanceBeyondDeadZone > 0 else {
+            fractionalScrollRemainder = 0
+            return
+        }
 
-        let signedDistance = verticalDistance - (verticalDistance > 0 ? deadZone : -deadZone)
-        let direction: CGFloat = signedDistance > 0 ? 1 : -1
-        let magnitude = min(maximumLinesPerTick, pow(abs(signedDistance) / 42, 1.25))
+        let direction: CGFloat = verticalDistance > 0 ? 1 : -1
+        let progress = min(1, distanceBeyondDeadZone / fullSpeedDistance)
+        let magnitude = 0.5 + pow(progress, 1.2) * (maximumScrollEventsPerTick - 0.5)
         let desiredDelta = (direction * magnitude) + fractionalScrollRemainder
         let wholeDelta = desiredDelta.rounded(.towardZero)
         fractionalScrollRemainder = desiredDelta - wholeDelta
-        let scrollDelta = Int32(wholeDelta)
-        guard scrollDelta != 0 else { return }
+        let eventCount = Int(abs(wholeDelta))
+        guard eventCount > 0 else { return }
+        let scrollDelta = direction > 0 ? linesPerScrollEvent : -linesPerScrollEvent
 
-        guard let source = CGEventSource(stateID: .combinedSessionState),
-              let event = CGEvent(
+        guard let source = CGEventSource(stateID: .combinedSessionState) else {
+            return
+        }
+
+        for _ in 0..<eventCount {
+            guard let event = CGEvent(
                 scrollWheelEvent2Source: source,
                 units: .line,
                 wheelCount: 1,
@@ -69,10 +80,11 @@ final class WindowsAutoScrollService {
                 wheel2: 0,
                 wheel3: 0
               ) else {
-            return
-        }
+                return
+            }
 
-        event.post(tap: .cghidEventTap)
+            event.post(tap: .cghidEventTap)
+        }
     }
 }
 
