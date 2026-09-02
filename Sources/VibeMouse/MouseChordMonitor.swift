@@ -2,6 +2,7 @@ import Foundation
 import CoreGraphics
 import Carbon.HIToolbox
 import AppKit
+import ApplicationServices
 import IOKit
 import IOKit.hidsystem
 
@@ -39,6 +40,12 @@ final class MouseChordMonitor {
         case failed(String)
     }
 
+    private enum CenterClickAction {
+        case passThrough
+        case openNewTab(CGPoint)
+        case autoScroll
+    }
+
     var chordWindowSeconds: TimeInterval = 0.06
     var onChord: (@MainActor @Sendable () -> Void)?
     var onF4KeyDown: (@MainActor @Sendable () -> Void)?
@@ -52,6 +59,8 @@ final class MouseChordMonitor {
     var onSideButtonDown: (@MainActor @Sendable (_ buttonNumber: Int64) -> Void)?
     var onPrimaryClickDown: (@MainActor @Sendable () -> Void)?
     var onWindowArrowShortcut: (@MainActor @Sendable (_ shortcut: WindowArrowShortcut) -> Void)?
+    var onSearchClipboardShortcut: (@MainActor @Sendable () -> Void)?
+    var onCopyAndSearchShortcut: (@MainActor @Sendable (_ previousPasteboardChangeCount: Int) -> Void)?
     var onScrollDebugSample: (@MainActor @Sendable (_ sample: ScrollDebugSample) -> Void)?
     var shouldSuppressPrimaryClick: (() -> Bool)?
     var palmControlShortcutRemappingEnabled = true
@@ -78,7 +87,13 @@ final class MouseChordMonitor {
     private var rightDownTime: TimeInterval?
     private var suppressF4KeyUp = false
     private var suppressNextLeftMouseUp = false
+    private var altCommandModeActive = false
+    private var activeOptionKeyCode = CGKeyCode(kVK_Option)
+    private var physicalControlKeyDown = false
+    private var suppressCopyAndSearchKeyUp = false
+    private var suppressSearchClipboardKeyUp = false
     private var suppressedWindowArrowKeyUps: Set<Int64> = []
+    private var suppressedAltCommandKeyUps: Set<Int64> = []
     private var suppressedSideButtons: Set<Int64> = []
     private var lastChordTriggerDispatchTime: TimeInterval = 0
     private var lastKeyboardTriggerDispatchTime: TimeInterval = 0
@@ -120,6 +135,8 @@ final class MouseChordMonitor {
         Int64(kVK_ANSI_9),
         Int64(kVK_ANSI_Equal),
         Int64(kVK_ANSI_Minus),
+        Int64(kVK_Return),
+        Int64(kVK_ANSI_KeypadEnter),
     ]
     private let nxSystemDefinedEventTypeRawValue: UInt32 = 14 // NX_SYSDEFINED
     private let nxSubtypeAuxControlButtons: Int16 = 8 // NX_SUBTYPE_AUX_CONTROL_BUTTONS
@@ -129,6 +146,7 @@ final class MouseChordMonitor {
     // F4/search commonly arrives as one of these media/system key types.
     private let supportedF4SystemKeyTypes: Set<Int64> = [13, 25, 160]
     private let fixedPointScalePerPoint: Int64 = 6_554
+    private let syntheticEventUserData: Int64 = 0x564D0A17
 
     func start() -> StartResult {
         if eventTap != nil {
@@ -213,6 +231,10 @@ final class MouseChordMonitor {
     }
 
     private func handleEvent(type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
+        if event.getIntegerValueField(.eventSourceUserData) == syntheticEventUserData {
+            return Unmanaged.passUnretained(event)
+        }
+
         if type.rawValue == nxSystemDefinedEventTypeRawValue {
             return handleSystemDefinedEvent(event)
         }
@@ -327,6 +349,38 @@ final class MouseChordMonitor {
                 return Unmanaged.passUnretained(event)
             }
 
+            // Match Windows/browser behavior: center-clicking a link becomes a
+            // Command-click (open in a new tab), while center-clicking elsewhere
+            // toggles auto-scroll.
+            if shouldSuppressPrimaryClick?() != true {
+                switch centerClickAction(at: event.location) {
+                case .passThrough:
+                    // Chrome and other browsers already implement Windows-style
+                    // middle-click tab closing. Leave both physical events intact.
+                    return Unmanaged.passUnretained(event)
+
+                case .openNewTab(let clickPoint):
+                    // Consume both halves of the physical center click so it cannot
+                    // also start auto-scroll or trigger browser-specific fallback
+                    // behavior. Ignore repeat-down events until its matching up.
+                    if suppressedSideButtons.contains(buttonNumber) {
+                        return nil
+                    }
+                    let cursorRestorePoint = clickPoint == event.location ? nil : event.location
+                    if postOpenLinkInNewTabClick(
+                        at: clickPoint,
+                        restoreCursorTo: cursorRestorePoint
+                    ) {
+                        suppressedSideButtons.insert(buttonNumber)
+                        return nil
+                    }
+                    return Unmanaged.passUnretained(event)
+
+                case .autoScroll:
+                    break
+                }
+            }
+
             // Some devices emit repeated down events while the side button is still held.
             // Ignore duplicates until we see the corresponding up event.
             if suppressedSideButtons.contains(buttonNumber) {
@@ -339,6 +393,245 @@ final class MouseChordMonitor {
         }
 
         return Unmanaged.passUnretained(event)
+    }
+
+    private func centerClickAction(at point: CGPoint) -> CenterClickAction {
+        guard let application = NSWorkspace.shared.frontmostApplication else { return .autoScroll }
+
+        let applicationElement = AXUIElementCreateApplication(application.processIdentifier)
+        AXUIElementSetMessagingTimeout(applicationElement, 0.08)
+
+        var hitElement: AXUIElement?
+        guard AXUIElementCopyElementAtPosition(
+            applicationElement,
+            Float(point.x),
+            Float(point.y),
+            &hitElement
+        ) == .success,
+              var currentElement = hitElement else {
+            return .autoScroll
+        }
+
+        // Browser tabs expose AXTab or the AXTabButton subrole. Passing their
+        // physical middle click through lets the browser close them natively.
+        // Web links can return a text/image child, so walk up for AXLink. Gmail
+        // inbox rows are different: only their nested subject control exposes
+        // AXLink and understands Command-click.
+        var gmailRow: AXUIElement?
+        var isInsideGmail = false
+        for _ in 0..<16 {
+            let role = accessibilityRole(of: currentElement)
+            if isBrowserTabElement(currentElement, role: role) {
+                return .passThrough
+            }
+            if role == NSAccessibility.Role.link.rawValue {
+                return .openNewTab(point)
+            }
+            if role == NSAccessibility.Role.row.rawValue, gmailRow == nil {
+                gmailRow = currentElement
+            }
+            if role == "AXWebArea",
+               isGmailWebArea(currentElement) {
+                isInsideGmail = true
+            }
+            if role == "AXWindow", isGmailWindow(currentElement) {
+                isInsideGmail = true
+            }
+
+            guard let parent = accessibilityElement(
+                currentElement,
+                attribute: kAXParentAttribute as String
+            ) else {
+                break
+            }
+            currentElement = parent
+        }
+
+        guard isInsideGmail,
+              let gmailRow,
+              let messageLink = firstLinkDescendant(of: gmailRow),
+              let linkCenter = accessibilityFrameCenter(of: messageLink) else {
+            return .autoScroll
+        }
+        return .openNewTab(linkCenter)
+    }
+
+    private func isBrowserTabElement(_ element: AXUIElement, role: String?) -> Bool {
+        if role == "AXTab" {
+            return true
+        }
+
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(
+            element,
+            kAXSubroleAttribute as CFString,
+            &value
+        ) == .success,
+              let subrole = value as? String else {
+            return false
+        }
+        return subrole == "AXTabButton"
+    }
+
+    private func accessibilityRole(of element: AXUIElement) -> String? {
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(
+            element,
+            kAXRoleAttribute as CFString,
+            &value
+        ) == .success else {
+            return nil
+        }
+        return value as? String
+    }
+
+    private func accessibilityElement(_ element: AXUIElement, attribute: String) -> AXUIElement? {
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, attribute as CFString, &value) == .success,
+              let value,
+              CFGetTypeID(value) == AXUIElementGetTypeID() else {
+            return nil
+        }
+        return (value as! AXUIElement)
+    }
+
+    private func isGmailWebArea(_ element: AXUIElement) -> Bool {
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(
+            element,
+            kAXURLAttribute as CFString,
+            &value
+        ) == .success,
+              let value else {
+            return false
+        }
+
+        let urlString: String?
+        if let url = value as? URL {
+            urlString = url.absoluteString
+        } else {
+            urlString = value as? String
+        }
+
+        guard let urlString else { return false }
+        let normalizedURL = urlString.lowercased()
+        if let host = URL(string: normalizedURL)?.host {
+            return host == "mail.google.com"
+        }
+        return normalizedURL == "mail.google.com"
+            || normalizedURL.hasPrefix("mail.google.com/")
+    }
+
+    private func isGmailWindow(_ element: AXUIElement) -> Bool {
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(
+            element,
+            kAXTitleAttribute as CFString,
+            &value
+        ) == .success,
+              let title = value as? String else {
+            return false
+        }
+        return title.localizedCaseInsensitiveContains("Gmail")
+    }
+
+    private func firstLinkDescendant(of root: AXUIElement) -> AXUIElement? {
+        var queue: [(element: AXUIElement, depth: Int)] = accessibilityChildren(of: root)
+            .map { ($0, 1) }
+        var index = 0
+
+        while index < queue.count, index < 96 {
+            let candidate = queue[index]
+            index += 1
+
+            if accessibilityRole(of: candidate.element) == NSAccessibility.Role.link.rawValue {
+                return candidate.element
+            }
+            if candidate.depth < 4 {
+                queue.append(contentsOf: accessibilityChildren(of: candidate.element).map {
+                    ($0, candidate.depth + 1)
+                })
+            }
+        }
+        return nil
+    }
+
+    private func accessibilityChildren(of element: AXUIElement) -> [AXUIElement] {
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(
+            element,
+            kAXChildrenAttribute as CFString,
+            &value
+        ) == .success else {
+            return []
+        }
+        return value as? [AXUIElement] ?? []
+    }
+
+    private func accessibilityFrameCenter(of element: AXUIElement) -> CGPoint? {
+        var positionValue: CFTypeRef?
+        var sizeValue: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(
+            element,
+            kAXPositionAttribute as CFString,
+            &positionValue
+        ) == .success,
+              AXUIElementCopyAttributeValue(
+                element,
+                kAXSizeAttribute as CFString,
+                &sizeValue
+              ) == .success,
+              let positionValue,
+              let sizeValue,
+              CFGetTypeID(positionValue) == AXValueGetTypeID(),
+              CFGetTypeID(sizeValue) == AXValueGetTypeID() else {
+            return nil
+        }
+
+        var position = CGPoint.zero
+        var size = CGSize.zero
+        guard AXValueGetValue(positionValue as! AXValue, .cgPoint, &position),
+              AXValueGetValue(sizeValue as! AXValue, .cgSize, &size),
+              size.width > 0,
+              size.height > 0 else {
+            return nil
+        }
+        return CGPoint(x: position.x + size.width / 2, y: position.y + size.height / 2)
+    }
+
+    private func postOpenLinkInNewTabClick(
+        at point: CGPoint,
+        restoreCursorTo cursorRestorePoint: CGPoint?
+    ) -> Bool {
+        guard let source = CGEventSource(stateID: .hidSystemState),
+              let mouseDown = CGEvent(
+                mouseEventSource: source,
+                mouseType: .leftMouseDown,
+                mouseCursorPosition: point,
+                mouseButton: .left
+              ),
+              let mouseUp = CGEvent(
+                mouseEventSource: source,
+                mouseType: .leftMouseUp,
+                mouseCursorPosition: point,
+                mouseButton: .left
+              ) else {
+            return false
+        }
+
+        for event in [mouseDown, mouseUp] {
+            event.flags = .maskCommand
+            event.setIntegerValueField(.eventSourceUserData, value: syntheticEventUserData)
+        }
+
+        // The synthetic marker lets these events pass through this tap without
+        // entering chord logic.
+        mouseDown.post(tap: .cghidEventTap)
+        mouseUp.post(tap: .cghidEventTap)
+        if let cursorRestorePoint {
+            CGWarpMouseCursorPosition(cursorRestorePoint)
+        }
+        return true
     }
 
     private func handleOtherMouseUp(_ event: CGEvent) -> Unmanaged<CGEvent>? {
@@ -471,7 +764,19 @@ final class MouseChordMonitor {
         let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
         let isAutoRepeat = event.getIntegerValueField(.keyboardEventAutorepeat) != 0
 
+        if handleCopyAndSearchShortcutIfNeeded(event, keyCode: keyCode, isAutoRepeat: isAutoRepeat) {
+            return nil
+        }
+
+        if handleSearchClipboardShortcutIfNeeded(event, keyCode: keyCode, isAutoRepeat: isAutoRepeat) {
+            return nil
+        }
+
         if handleWindowArrowShortcutIfNeeded(event, keyCode: keyCode, isAutoRepeat: isAutoRepeat) {
+            return nil
+        }
+
+        if remapAltCommandShortcutIfNeeded(event, keyCode: keyCode, isKeyDown: true) {
             return nil
         }
 
@@ -525,7 +830,21 @@ final class MouseChordMonitor {
     private func handleKeyUp(_ event: CGEvent) -> Unmanaged<CGEvent>? {
         let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
 
+        if keyCode == Int64(kVK_ANSI_C), suppressCopyAndSearchKeyUp {
+            suppressCopyAndSearchKeyUp = false
+            return nil
+        }
+
+        if keyCode == Int64(kVK_ANSI_V), suppressSearchClipboardKeyUp {
+            suppressSearchClipboardKeyUp = false
+            return nil
+        }
+
         if suppressedWindowArrowKeyUps.remove(keyCode) != nil {
+            return nil
+        }
+
+        if remapAltCommandShortcutIfNeeded(event, keyCode: keyCode, isKeyDown: false) {
             return nil
         }
 
@@ -552,6 +871,57 @@ final class MouseChordMonitor {
         }
 
         return Unmanaged.passUnretained(event)
+    }
+
+    private func handleCopyAndSearchShortcutIfNeeded(
+        _ event: CGEvent,
+        keyCode: Int64,
+        isAutoRepeat: Bool
+    ) -> Bool {
+        guard keyCode == Int64(kVK_ANSI_C), onCopyAndSearchShortcut != nil else { return false }
+
+        let flags = event.flags
+        let hasControl = flags.contains(.maskControl) || physicalControlKeyDown
+        guard hasControl,
+              flags.contains(.maskShift),
+              !flags.contains(.maskAlternate),
+              !flags.contains(.maskCommand),
+              !flags.contains(.maskSecondaryFn) else {
+            return false
+        }
+
+        suppressCopyAndSearchKeyUp = true
+        if !isAutoRepeat {
+            let previousPasteboardChangeCount = NSPasteboard.general.changeCount
+            postSyntheticKeyEvent(keyCode: CGKeyCode(kVK_ANSI_C), keyDown: true, flags: [.maskCommand])
+            postSyntheticKeyEvent(keyCode: CGKeyCode(kVK_ANSI_C), keyDown: false, flags: [.maskCommand])
+            dispatchCopyAndSearchTrigger(previousPasteboardChangeCount: previousPasteboardChangeCount)
+        }
+        return true
+    }
+
+    private func handleSearchClipboardShortcutIfNeeded(
+        _ event: CGEvent,
+        keyCode: Int64,
+        isAutoRepeat: Bool
+    ) -> Bool {
+        guard keyCode == Int64(kVK_ANSI_V), onSearchClipboardShortcut != nil else { return false }
+
+        let flags = event.flags
+        let hasControl = flags.contains(.maskControl) || physicalControlKeyDown
+        guard hasControl,
+              flags.contains(.maskAlternate),
+              !flags.contains(.maskCommand),
+              !flags.contains(.maskShift),
+              !flags.contains(.maskSecondaryFn) else {
+            return false
+        }
+
+        suppressSearchClipboardKeyUp = true
+        if !isAutoRepeat {
+            dispatchKeyboardTrigger(onSearchClipboardShortcut)
+        }
+        return true
     }
 
     private func handleWindowArrowShortcutIfNeeded(
@@ -651,6 +1021,92 @@ final class MouseChordMonitor {
         return true
     }
 
+    private func remapAltCommandShortcutIfNeeded(_ event: CGEvent, keyCode: Int64, isKeyDown: Bool) -> Bool {
+        guard isAltCommandShortcutKey(keyCode) else { return false }
+
+        if isKeyDown {
+            guard let remappedFlags = altCommandModeActive
+                    ? Optional(altCommandActiveFlags(from: event.flags))
+                    : altCommandFlags(from: event.flags) else {
+                return false
+            }
+
+            beginAltCommandModeIfNeeded(flags: remappedFlags)
+            suppressedAltCommandKeyUps.insert(keyCode)
+            postSyntheticKeyEvent(keyCode: CGKeyCode(keyCode), keyDown: true, flags: remappedFlags)
+            return true
+        }
+
+        guard suppressedAltCommandKeyUps.remove(keyCode) != nil else { return false }
+        if altCommandModeActive {
+            let remappedFlags = altCommandActiveFlags(from: event.flags)
+            postSyntheticKeyEvent(keyCode: CGKeyCode(keyCode), keyDown: false, flags: remappedFlags)
+        }
+        return true
+    }
+
+    private func isAltCommandShortcutKey(_ keyCode: Int64) -> Bool {
+        keyCode == Int64(kVK_Tab) || keyCode == Int64(kVK_ANSI_Grave)
+    }
+
+    private func altCommandFlags(from flags: CGEventFlags) -> CGEventFlags? {
+        guard flags.contains(.maskAlternate),
+              !flags.contains(.maskControl),
+              !flags.contains(.maskCommand),
+              !flags.contains(.maskSecondaryFn) else {
+            return nil
+        }
+
+        return altCommandActiveFlags(from: flags)
+    }
+
+    private func altCommandActiveFlags(from flags: CGEventFlags) -> CGEventFlags {
+        var remappedFlags = flags
+        remappedFlags.remove(.maskAlternate)
+        remappedFlags.insert(.maskCommand)
+        return remappedFlags
+    }
+
+    private func beginAltCommandModeIfNeeded(flags: CGEventFlags) {
+        guard !altCommandModeActive else { return }
+        altCommandModeActive = true
+
+        var optionReleaseFlags = flags
+        optionReleaseFlags.remove(.maskAlternate)
+        optionReleaseFlags.remove(.maskCommand)
+        postSyntheticKeyEvent(keyCode: activeOptionKeyCode, keyDown: false, flags: optionReleaseFlags)
+        postSyntheticKeyEvent(keyCode: CGKeyCode(kVK_Command), keyDown: true, flags: flags)
+    }
+
+    private func endAltCommandModeIfNeeded(flags: CGEventFlags) {
+        guard altCommandModeActive else { return }
+        altCommandModeActive = false
+
+        var releaseFlags = flags
+        releaseFlags.remove(.maskAlternate)
+        releaseFlags.remove(.maskCommand)
+        postSyntheticKeyEvent(keyCode: CGKeyCode(kVK_Command), keyDown: false, flags: releaseFlags)
+    }
+
+    private func isOptionModifierKey(_ keyCode: Int64) -> Bool {
+        keyCode == Int64(kVK_Option) || keyCode == Int64(kVK_RightOption)
+    }
+
+    private func isControlModifierKey(_ keyCode: Int64) -> Bool {
+        keyCode == Int64(kVK_Control) || keyCode == Int64(kVK_RightControl)
+    }
+
+    private func postSyntheticKeyEvent(keyCode: CGKeyCode, keyDown: Bool, flags: CGEventFlags) {
+        guard let source = CGEventSource(stateID: .hidSystemState),
+              let syntheticEvent = CGEvent(keyboardEventSource: source, virtualKey: keyCode, keyDown: keyDown) else {
+            return
+        }
+
+        syntheticEvent.flags = flags
+        syntheticEvent.setIntegerValueField(.eventSourceUserData, value: syntheticEventUserData)
+        syntheticEvent.post(tap: .cghidEventTap)
+    }
+
     private func remapPalmControlShortcutIfNeeded(_ event: CGEvent, keyCode: Int64) -> Bool {
         guard palmControlShortcutRemappingEnabled else { return false }
 
@@ -690,15 +1146,16 @@ final class MouseChordMonitor {
     }
 
     private func palmControlBaseFlags(from flags: CGEventFlags) -> CGEventFlags? {
-        guard flags.contains(.maskControl),
+        guard flags.contains(.maskControl) || physicalControlKeyDown,
               !flags.contains(.maskCommand),
               !flags.contains(.maskAlternate),
-              !flags.contains(.maskSecondaryFn) else {
+              !flags.contains(.maskHelp) else {
             return nil
         }
 
         var baseFlags = flags
         baseFlags.remove(.maskControl)
+        baseFlags.remove(.maskSecondaryFn)
         return baseFlags
     }
 
@@ -753,6 +1210,18 @@ final class MouseChordMonitor {
 
     private func handleFlagsChanged(_ event: CGEvent) -> Unmanaged<CGEvent>? {
         let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
+        if isOptionModifierKey(keyCode) {
+            if event.flags.contains(.maskAlternate) {
+                activeOptionKeyCode = CGKeyCode(keyCode)
+            } else {
+                endAltCommandModeIfNeeded(flags: event.flags)
+            }
+        }
+
+        if isControlModifierKey(keyCode) {
+            physicalControlKeyDown = event.flags.contains(.maskControl)
+        }
+
         if keyCode == Int64(kVK_CapsLock) {
             guard onCapsLockKeyDown != nil else {
                 return Unmanaged.passUnretained(event)
@@ -1036,14 +1505,26 @@ final class MouseChordMonitor {
         }
     }
 
+    private func dispatchCopyAndSearchTrigger(previousPasteboardChangeCount: Int) {
+        let callback = onCopyAndSearchShortcut
+        Task { @MainActor in
+            callback?(previousPasteboardChangeCount)
+        }
+    }
+
     private func resetState() {
         stopReleasePolling()
+        endAltCommandModeIfNeeded(flags: [])
         leftDown = false
         rightDown = false
+        physicalControlKeyDown = false
         suppressF4KeyUp = false
+        suppressCopyAndSearchKeyUp = false
+        suppressSearchClipboardKeyUp = false
         suppressNextLeftMouseUp = false
         suppressUntilButtonsUp = false
         suppressedWindowArrowKeyUps.removeAll()
+        suppressedAltCommandKeyUps.removeAll()
         suppressedSideButtons.removeAll()
         chordTriggeredForCurrentPress = false
         chordPendingActionAfterRelease = false

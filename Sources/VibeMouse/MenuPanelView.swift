@@ -84,11 +84,15 @@ struct MenuPanelView: View {
     }
 
     private var shortcutSummaryText: String {
-        return "\(screenshotKeyboardCompactSummaryGesture) screenshot, Ctrl-click links, Fn/Globe arrows"
+        let searchSegment = model.searchClipboardEnabled ? ", Ctrl+Shift+C search" : ""
+        return "\(screenshotKeyboardCompactSummaryGesture) screenshot\(searchSegment), Ctrl-click links, Fn/Globe arrows"
     }
 
     private var listeningSummaryText: String {
-        return "Listening for \(screenshotListeningGesture) screenshot triggers, Alt+Space Spotlight, palm Ctrl shortcuts, Ctrl-click links, Ctrl+Delete word-delete, Ctrl+Arrow or Fn/Globe+Arrow window tiling, and center-click auto-scroll."
+        let searchSegment = model.searchClipboardEnabled
+            ? "Ctrl+Shift+C copy-and-search, Ctrl+Option+V clipboard search, "
+            : ""
+        return "Listening for \(screenshotListeningGesture) screenshot triggers, \(searchSegment)Alt+Space Spotlight, Alt+Tab app switching, Alt+` window cycling, palm Ctrl shortcuts, Ctrl-click links, Ctrl+Delete word-delete, Ctrl+Arrow or Fn/Globe+Arrow window tiling, and center-click tab closing, link or Gmail message opening, or auto-scroll."
     }
 
     private var screenshotKeyboardSummaryGesture: String {

@@ -50,6 +50,13 @@ struct SettingsView: View {
         )
     }
 
+    private var searchClipboardBinding: Binding<Bool> {
+        Binding(
+            get: { model.searchClipboardEnabled },
+            set: { model.searchClipboardEnabled = $0 }
+        )
+    }
+
     private var reverseScrollingBinding: Binding<Bool> {
         Binding(
             get: { model.reverseScrollingEnabled },
@@ -86,7 +93,7 @@ struct SettingsView: View {
     }
 
     private var keyboardLegendDetail: String {
-        "Use Windows muscle memory for Spotlight, Mac commands, links, and word-delete."
+        "Use Windows muscle memory for Spotlight, app switching, Mac commands, copy-and-search, links, and word-delete."
     }
 
     private var windowLegendGesture: String {
@@ -102,7 +109,7 @@ struct SettingsView: View {
     }
 
     private var autoScrollLegendDetail: String {
-        "Move farther from the anchor to scroll faster; Escape or left click stops it."
+        "Close browser tabs; open links and Gmail messages in a new tab; elsewhere toggle auto-scroll."
     }
 
     private var headerCard: some View {
@@ -124,7 +131,7 @@ struct SettingsView: View {
                 }
 
                 Text(
-                    "Global shortcuts: \(keyboardCaptureSummary) capture to clipboard, Alt+Space Spotlight, palm Ctrl shortcuts, Ctrl-click links, Ctrl+Delete word-delete, Ctrl+Arrow or Fn/Globe+Arrow window tiling across monitors, and center-click auto-scroll."
+                    "Global shortcuts: \(keyboardCaptureSummary) capture to clipboard, Ctrl+Shift+C copies selected text and searches it, Ctrl+Option+V searches existing clipboard text, Alt+Space Spotlight, Alt+Tab app switching, Alt+` window cycling, palm Ctrl shortcuts, Ctrl-click links, Ctrl+Delete word-delete, Ctrl+Arrow or Fn/Globe+Arrow window tiling across monitors, and center-click tab closing, link or Gmail message opening, or auto-scroll."
                 )
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
@@ -217,13 +224,33 @@ struct SettingsView: View {
                         Text("Enable mouse shortcuts")
                             .font(.headline)
                         Text(
-                            "When enabled, the app listens globally for screenshot capture (\(screenshotListeningLegend)), Alt+Space Spotlight, palm Ctrl shortcuts, Ctrl-click links, Ctrl+Delete word-delete, Ctrl+Arrow or Fn/Globe+Arrow window tiling, and center-click auto-scroll."
+                            "When enabled, the app listens globally for screenshot capture (\(screenshotListeningLegend)), Ctrl+Shift+C copy-and-search, Ctrl+Option+V clipboard search, Alt+Space Spotlight, Alt+Tab app switching, Alt+` window cycling, palm Ctrl shortcuts, Ctrl-click links, Ctrl+Delete word-delete, Ctrl+Arrow or Fn/Globe+Arrow window tiling, and center-click tab closing, link or Gmail message opening, or auto-scroll."
                         )
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
                     Spacer()
                     Toggle("", isOn: enabledBinding)
+                        .labelsHidden()
+                        .toggleStyle(.switch)
+                }
+                .padding(14)
+                .roundedSurface()
+
+                HStack(spacing: 12) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Copy & Search")
+                            .font(.headline)
+                        Text(
+                            model.searchClipboardEnabled
+                                ? "Select a name and press Ctrl+Shift+C to copy and search it immediately. Ctrl+Option+V searches text already on the clipboard."
+                                : "Ctrl+Shift+C and Ctrl+Option+V pass through normally."
+                        )
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Toggle("", isOn: searchClipboardBinding)
                         .labelsHidden()
                         .toggleStyle(.switch)
                 }

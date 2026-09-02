@@ -30,6 +30,14 @@ final class AppModel: ObservableObject {
         }
     }
 
+    @Published var searchClipboardEnabled: Bool {
+        didSet {
+            defaults.set(searchClipboardEnabled, forKey: Self.searchClipboardEnabledKey)
+            configureKeyboardCaptureCallbacks()
+            applyMonitorState()
+        }
+    }
+
     @Published var reverseScrollingEnabled: Bool {
         didSet {
             defaults.set(reverseScrollingEnabled, forKey: Self.reverseScrollingEnabledKey)
@@ -116,6 +124,7 @@ final class AppModel: ObservableObject {
     private static let enabledKey = "mouseChordShot.enabled"
     private static let chordWindowKey = "mouseChordShot.chordWindowMs"
     private static let capsLockScreenshotEnabledKey = "mouseChordShot.screenshot.capsLockEnabled"
+    private static let searchClipboardEnabledKey = "mouseChordShot.searchClipboard.enabled"
     private static let reverseScrollingEnabledKey = "mouseChordShot.scroll.reverseEnabled"
     private static let mouseScrollSpeedKey = "mouseChordShot.scroll.mouseSpeed"
     private static let scrollEventLoggingEnabledKey = "mouseChordShot.scroll.debugLogEnabled"
@@ -136,6 +145,7 @@ final class AppModel: ObservableObject {
     private let windowTilerService: WindowTilerService
     private var activationObserver: NSObjectProtocol?
     private var terminationObserver: NSObjectProtocol?
+    private var copyAndSearchTask: Task<Void, Never>?
 
     init(
         defaults: UserDefaults = .standard,
@@ -154,6 +164,9 @@ final class AppModel: ObservableObject {
         self.chordWindowMs = defaults.object(forKey: Self.chordWindowKey) as? Double ?? 60
         self.capsLockScreenshotEnabled = defaults.object(
             forKey: Self.capsLockScreenshotEnabledKey
+        ) as? Bool ?? true
+        self.searchClipboardEnabled = defaults.object(
+            forKey: Self.searchClipboardEnabledKey
         ) as? Bool ?? true
         self.reverseScrollingEnabled = defaults.object(
             forKey: Self.reverseScrollingEnabledKey
@@ -210,6 +223,7 @@ final class AppModel: ObservableObject {
             queue: .main
         ) { [weak self] _ in
             Task { @MainActor [weak self] in
+                self?.copyAndSearchTask?.cancel()
                 self?.windowsAutoScrollService.stop()
                 self?.monitor.stop()
             }
@@ -396,6 +410,78 @@ final class AppModel: ObservableObject {
         runScreenshot()
     }
 
+    private func handleSearchClipboardTriggered() {
+        guard isEnabled else { return }
+
+        let pasteboard = NSPasteboard.general
+        guard let clipboardText = pasteboard.string(forType: .string) else {
+            lastActionMessage = "Copy a name or other text before using Search Clipboard."
+            return
+        }
+
+        searchCopiedText(clipboardText)
+    }
+
+    private func handleCopyAndSearchTriggered(previousPasteboardChangeCount: Int) {
+        guard isEnabled, searchClipboardEnabled else { return }
+
+        copyAndSearchTask?.cancel()
+        copyAndSearchTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+
+            for attempt in 0..<20 {
+                guard !Task.isCancelled else { return }
+
+                let pasteboard = NSPasteboard.general
+                if pasteboard.changeCount != previousPasteboardChangeCount,
+                   let copiedText = pasteboard.string(forType: .string),
+                   !copiedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    searchCopiedText(copiedText)
+                    return
+                }
+
+                if attempt < 19 {
+                    try? await Task.sleep(nanoseconds: 25_000_000)
+                }
+            }
+
+            lastActionMessage = "Could not copy selected text. Select a name and try Ctrl+Shift+C again."
+        }
+    }
+
+    private func searchCopiedText(_ clipboardText: String) {
+        guard isEnabled, searchClipboardEnabled else { return }
+
+        let searchText = clipboardText
+            .split(whereSeparator: { $0.isWhitespace })
+            .joined(separator: " ")
+        guard !searchText.isEmpty else {
+            lastActionMessage = "Copy a name or other text before using Search Clipboard."
+            return
+        }
+
+        var components = URLComponents()
+        components.scheme = "https"
+        components.host = "www.google.com"
+        components.path = "/search"
+        components.queryItems = [URLQueryItem(name: "q", value: searchText)]
+
+        guard let searchURL = components.url else {
+            lastActionMessage = "Could not create a search for the copied text."
+            return
+        }
+
+        windowsAutoScrollService.stop()
+        if NSWorkspace.shared.open(searchURL) {
+            let previewLimit = 72
+            let preview = String(searchText.prefix(previewLimit))
+            let suffix = searchText.count > previewLimit ? "…" : ""
+            lastActionMessage = "Searching Google for “\(preview)\(suffix)”."
+        } else {
+            lastActionMessage = "Could not open the copied-text search in your default browser."
+        }
+    }
+
     private func handleWindowArrowShortcut(_ shortcut: MouseChordMonitor.WindowArrowShortcut) {
         guard isEnabled else { return }
         windowsAutoScrollService.stop()
@@ -520,6 +606,21 @@ final class AppModel: ObservableObject {
     private func configureKeyboardCaptureCallbacks() {
         monitor.disableCapsLockLockingWhileIntercepting = capsLockScreenshotEnabled
 
+        if searchClipboardEnabled {
+            monitor.onSearchClipboardShortcut = { [weak self] in
+                self?.handleSearchClipboardTriggered()
+            }
+            monitor.onCopyAndSearchShortcut = { [weak self] previousPasteboardChangeCount in
+                self?.handleCopyAndSearchTriggered(
+                    previousPasteboardChangeCount: previousPasteboardChangeCount
+                )
+            }
+        } else {
+            copyAndSearchTask?.cancel()
+            monitor.onSearchClipboardShortcut = nil
+            monitor.onCopyAndSearchShortcut = nil
+        }
+
         // F4 screenshot trigger is intentionally disabled.
         monitor.onF4KeyDown = nil
         monitor.onEscapeKeyDown = { [weak self] in
@@ -588,9 +689,12 @@ final class AppModel: ObservableObject {
 
     private func monitorListeningStatusDescription() -> String {
         let screenshotSegment = "screenshot (\(screenshotTriggerLabel), clipboard-only)"
-        let keyboardSegment = "Alt+Space Spotlight, palm Ctrl shortcuts, Ctrl-click links, and Ctrl+Delete word-delete"
+        let searchClipboardSegment = searchClipboardEnabled
+            ? ", Ctrl+Shift+C copy-and-search and Ctrl+Option+V clipboard search"
+            : ""
+        let keyboardSegment = "Alt+Space Spotlight, Alt+Tab app switching, Alt+` window cycling, palm Ctrl shortcuts, Ctrl-click links, and Ctrl+Delete word-delete\(searchClipboardSegment)"
         let windowSegment = "Ctrl+Arrow or Fn/Globe+Arrow window tiling"
-        let autoScrollSegment = "center-click auto-scroll"
+        let autoScrollSegment = "center-click tab closing, link or Gmail message opening, or auto-scroll"
         let scrollSegment = reverseScrollingEnabled ? ", reversed scrolling" : ""
         let debugSegment = scrollEventLoggingEnabled ? ", scroll debug logging" : ""
 

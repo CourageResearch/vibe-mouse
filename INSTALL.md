@@ -57,9 +57,14 @@ If you want normal Caps Lock behavior, disable **Settings → Behavior → Use C
 
 Palm-friendly Windows-style shortcuts are translated while Vibe Mouse is enabled:
 
+- **Ctrl + Shift + C** copies the selected name or other text and immediately searches it in a new tab in your default browser.
+- **Ctrl + Option + V** searches the copied name or other text in a new tab in your default browser.
 - **Alt + Space** opens Spotlight with macOS Command+Space behavior.
+- **Alt + Tab** cycles apps with macOS Command+Tab app-switcher behavior.
+- **Alt + Backtick** / **Alt + ~** cycles windows in the current app with macOS Command+Backtick behavior.
 - **Ctrl + V** pastes with macOS Command+V.
 - **Ctrl + C**, **Ctrl + T**, **Ctrl + W**, and similar shortcuts map to their Mac Command equivalents.
+- **Ctrl + Enter** sends or submits in apps that use macOS Command+Enter.
 - **Ctrl + left click** opens links with macOS Command-click behavior.
 - **Ctrl + Delete** deletes the previous word with macOS Option+Delete behavior.
 - **Ctrl + Tab** and **Ctrl + Shift + Tab** are left alone so Chrome can cycle tabs.
@@ -70,7 +75,9 @@ Palm-friendly Windows-style shortcuts are translated while Vibe Mouse is enabled
 
 Mouse controls:
 
-- **Center click** toggles Windows-style auto-scroll; farther from the anchor scrolls faster.
+- **Center click** over a browser tab closes that tab.
+- **Center click** over a link or Gmail inbox message opens it in a new browser tab.
+- **Center click** elsewhere toggles Windows-style auto-scroll; farther from the anchor scrolls faster.
 - **Left click** stops auto-scroll when it is active.
 - Back and Forward side buttons pass through normally.
 
