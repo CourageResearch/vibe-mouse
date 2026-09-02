@@ -4,7 +4,7 @@
 
 Download the latest app zip from GitHub Releases:
 
-- `Mouse-Chord-Shot-v0.1.0-macOS-arm64.zip`
+- `Vibe-Mouse-v0.1.0-macOS-arm64.zip`
 
 This build is for Apple Silicon (`arm64`) Macs.
 
@@ -42,7 +42,7 @@ After granting permissions:
 2. Reopen it
 3. Click `Refresh Status`
 
-The status should show it is listening for the mouse chord.
+The status should show it is listening for screenshot, keyboard, and mouse shortcuts.
 
 ## Using It
 
@@ -55,30 +55,31 @@ Then click-drag to capture an area. The screenshot is copied to the clipboard.
 
 If you want normal Caps Lock behavior, disable **Settings → Behavior → Use Caps Lock for screenshot**.
 
-If enabled in the app:
+Palm-friendly Windows-style shortcuts are translated while Vibe Mouse is enabled:
 
-- Press **Back + Forward side buttons together** to paste clipboard (`Cmd+V`).
-- Press **Back side button alone** to pass Back through to apps normally.
-- Press **Forward side button** to toggle system Dictation on/off.
-- When Dictation is toggled off from Vibe Mouse, it automatically sends **Return**.
+- **Ctrl + Shift + C** copies the selected name or other text and immediately searches it in a new tab in your default browser.
+- **Ctrl + Option + V** searches the copied name or other text in a new tab in your default browser.
+- **Alt + Space** opens Spotlight with macOS Command+Space behavior.
+- **Alt + Tab** cycles apps with macOS Command+Tab app-switcher behavior.
+- **Alt + Backtick** / **Alt + ~** cycles windows in the current app with macOS Command+Backtick behavior.
+- **Ctrl + V** pastes with macOS Command+V.
+- **Ctrl + C**, **Ctrl + T**, **Ctrl + W**, and similar shortcuts map to their Mac Command equivalents.
+- **Ctrl + Enter** sends or submits in apps that use macOS Command+Enter.
+- **Ctrl + left click** opens links with macOS Command-click behavior.
+- **Ctrl + Delete** deletes the previous word with macOS Option+Delete behavior.
+- **Ctrl + Tab** and **Ctrl + Shift + Tab** are left alone so Chrome can cycle tabs.
+- **Ctrl + Left/Right/Up/Down** or **Fn/Globe + Left/Right/Up/Down** snaps the focused window like Windows.
+- Repeating **Ctrl + Left/Right** from a side snap throws the window to the neighboring monitor.
+- Repeating **Fn/Globe + Left/Right** from a side snap throws the window to the neighboring monitor.
+- **Ctrl + Shift + Left/Right** or **Fn/Globe + Shift + Left/Right** moves the focused window to the physically neighboring monitor.
 
-### Experimental Forward Gestures (Preview)
+Mouse controls:
 
-Enable this in **Settings → Behavior** to test an alternate control scheme:
-
-- **Single-click Forward**: toggle Dictation
-- **Press + drag Forward, then release**: capture selected area to clipboard
-- **Double-click Forward**: paste clipboard (`Cmd+V`)
-
-## Configure Dictation Shortcut (for Forward Button)
-
-Set macOS Dictation to use this shortcut so Vibe Mouse can toggle it:
-
-1. Open **System Settings → Keyboard → Dictation**
-2. Ensure Dictation is turned on
-3. Set Dictation shortcut to **Control + Option + Command + D**
-
-Vibe Mouse sends that shortcut when you press the Forward side button.
+- **Center click** over a browser tab closes that tab.
+- **Center click** over a link or Gmail inbox message opens it in a new browser tab.
+- **Center click** elsewhere toggles Windows-style auto-scroll; farther from the anchor scrolls faster.
+- **Left click** stops auto-scroll when it is active.
+- Back and Forward side buttons pass through normally.
 
 ## If The App Is Not Listed In macOS Permission Pickers
 

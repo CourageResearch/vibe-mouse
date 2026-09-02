@@ -62,6 +62,14 @@ struct MenuPanelView: View {
                     }
                     .buttonStyle(PanelSecondaryButtonStyle())
                 }
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(model.buildVersionLabel)
+                        .font(.caption2.weight(.semibold))
+                    Text(model.runtimeOriginLabel)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
             }
             .padding(14)
         }
@@ -76,25 +84,15 @@ struct MenuPanelView: View {
     }
 
     private var shortcutSummaryText: String {
-        if model.forwardButtonDictationEnabled {
-            if model.screenshotPasteStartsDictationActive {
-                return "\(screenshotKeyboardCompactSummaryGesture) screenshot, next-click paste, Forward Dictation, screenshot paste can auto-start Dictation"
-            }
-            return "\(screenshotKeyboardCompactSummaryGesture) screenshot, next-click paste, Forward Dictation"
-        }
-
-        return "\(screenshotKeyboardCompactSummaryGesture) screenshot, next-click paste"
+        let searchSegment = model.searchClipboardEnabled ? ", Ctrl+Shift+C search" : ""
+        return "\(screenshotKeyboardCompactSummaryGesture) screenshot\(searchSegment), Ctrl-click links, Fn/Globe arrows"
     }
 
     private var listeningSummaryText: String {
-        if model.forwardButtonDictationEnabled {
-            if model.screenshotPasteStartsDictationActive {
-                return "Listening for \(screenshotListeningGesture) screenshot, next-click paste after capture, Forward Dictation toggle, and screenshot auto-start Dictation that stops on the following click."
-            }
-            return "Listening for \(screenshotListeningGesture) screenshot, next-click paste after capture, and Forward Dictation toggle."
-        }
-
-        return "Listening for \(screenshotListeningGesture) screenshot triggers and next-click paste after capture."
+        let searchSegment = model.searchClipboardEnabled
+            ? "Ctrl+Shift+C copy-and-search, Ctrl+Option+V clipboard search, "
+            : ""
+        return "Listening for \(screenshotListeningGesture) screenshot triggers, \(searchSegment)Alt+Space Spotlight, Alt+Tab app switching, Alt+` window cycling, palm Ctrl shortcuts, Ctrl-click links, Ctrl+Delete word-delete, Ctrl+Arrow or Fn/Globe+Arrow window tiling, and center-click tab closing, link or Gmail message opening, or auto-scroll."
     }
 
     private var screenshotKeyboardSummaryGesture: String {

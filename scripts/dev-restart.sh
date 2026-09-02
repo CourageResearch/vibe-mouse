@@ -3,6 +3,9 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+BUILD_ROOT="$REPO_ROOT/.build"
+SWIFTPM_ROOT="$REPO_ROOT/.swiftpm"
+SCRATCH_PATH="$BUILD_ROOT/scratch"
 if [[ -n "${VIBE_MOUSE_APP_PATH:-}" ]]; then
   APP_PATH="$VIBE_MOUSE_APP_PATH"
 elif [[ -d "/Applications/Vibe Mouse.app" ]]; then
@@ -14,12 +17,17 @@ else
 fi
 APP_BIN="$APP_PATH/Contents/MacOS/mouse"
 APP_INFO_PLIST="$APP_PATH/Contents/Info.plist"
-BUILD_BIN="$REPO_ROOT/.build/debug/vibe-mouse"
+BUILD_BIN=""
 SIGNING_DIR="$HOME/.vibe-mouse-signing"
 KEYCHAIN_PATH="$SIGNING_DIR/vibe-dev.keychain-db"
 KEYCHAIN_PASS_FILE="$SIGNING_DIR/keychain.pass"
 SIGNING_IDENTITY="Vibe Mouse Local Dev"
 APP_BUNDLE_ID=""
+
+export CLANG_MODULE_CACHE_PATH="$BUILD_ROOT/ModuleCache"
+export SWIFTPM_CUSTOM_CACHE_PATH="$BUILD_ROOT/swiftpm-cache"
+export SWIFTPM_CONFIG_PATH="$SWIFTPM_ROOT/configuration"
+export SWIFTPM_SECURITY_PATH="$SWIFTPM_ROOT/security"
 
 ensure_keychain_in_search_list() {
   local existing_keychains=()
@@ -123,10 +131,17 @@ fi
 APP_BUNDLE_ID="$(/usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$APP_INFO_PLIST" 2>/dev/null || true)"
 
 cd "$REPO_ROOT"
+mkdir -p \
+  "$CLANG_MODULE_CACHE_PATH" \
+  "$SWIFTPM_CUSTOM_CACHE_PATH" \
+  "$SWIFTPM_CONFIG_PATH" \
+  "$SWIFTPM_SECURITY_PATH" \
+  "$SCRATCH_PATH"
 ensure_signing_identity
 
 echo "Building..."
-swift build
+swift build --disable-sandbox --scratch-path "$SCRATCH_PATH"
+BUILD_BIN="$(swift build --disable-sandbox --scratch-path "$SCRATCH_PATH" --show-bin-path)/vibe-mouse"
 
 echo "Updating app binary..."
 cp "$BUILD_BIN" "$APP_BIN"
@@ -140,12 +155,18 @@ else
   /usr/libexec/PlistBuddy -c "Add :CFBundleVersion string $BUILD_NUMBER" "$APP_INFO_PLIST"
 fi
 
-echo "Ensuring microphone usage description..."
-if /usr/libexec/PlistBuddy -c "Print :NSMicrophoneUsageDescription" "$APP_INFO_PLIST" >/dev/null 2>&1; then
-  /usr/libexec/PlistBuddy -c "Set :NSMicrophoneUsageDescription Vibe Mouse uses the microphone only when you trigger dictation so it can transcribe your speech." "$APP_INFO_PLIST"
+echo "Ensuring bundle display name..."
+if /usr/libexec/PlistBuddy -c "Print :CFBundleName" "$APP_INFO_PLIST" >/dev/null 2>&1; then
+  /usr/libexec/PlistBuddy -c "Set :CFBundleName Vibe Mouse" "$APP_INFO_PLIST"
 else
-  /usr/libexec/PlistBuddy -c "Add :NSMicrophoneUsageDescription string Vibe Mouse uses the microphone only when you trigger dictation so it can transcribe your speech." "$APP_INFO_PLIST"
+  /usr/libexec/PlistBuddy -c "Add :CFBundleName string Vibe Mouse" "$APP_INFO_PLIST"
 fi
+if /usr/libexec/PlistBuddy -c "Print :CFBundleDisplayName" "$APP_INFO_PLIST" >/dev/null 2>&1; then
+  /usr/libexec/PlistBuddy -c "Set :CFBundleDisplayName Vibe Mouse" "$APP_INFO_PLIST"
+else
+  /usr/libexec/PlistBuddy -c "Add :CFBundleDisplayName string Vibe Mouse" "$APP_INFO_PLIST"
+fi
+/usr/libexec/PlistBuddy -c "Delete :NSMicrophoneUsageDescription" "$APP_INFO_PLIST" >/dev/null 2>&1 || true
 
 echo "Signing app..."
 SIGNING_HASH="$(signing_identity_hash)"

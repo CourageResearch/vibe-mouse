@@ -3,8 +3,8 @@
 Vibe Mouse is a macOS menu bar utility that maps mouse and keyboard chords to fast desktop actions:
 
 - screenshot capture to clipboard
-- clipboard paste (`Cmd+V`)
-- Dictation toggle
+- palm-friendly Windows-style `Ctrl` shortcuts
+- center-click auto-scroll
 
 The app is built with SwiftUI/AppKit and runs as a menu bar extra (`LSUIElement`), so it stays lightweight and out of the Dock.
 
@@ -13,13 +13,22 @@ The app is built with SwiftUI/AppKit and runs as a menu bar extra (`LSUIElement`
 - Trigger screenshot mode with:
   - Left click + Right click chord
   - Caps Lock (optional, enabled by default)
-- Optional side-button shortcuts:
-  - Back + Forward chord -> paste clipboard (`Cmd+V`)
-  - Forward button -> toggle Dictation
-- Experimental Forward gesture mode:
-  - Forward single-click -> Dictation
-  - Forward drag + release -> area screenshot to clipboard
-  - Forward double-click -> paste clipboard
+- Screenshots are copied to the clipboard without auto-pasting
+- Palm-friendly keyboard and click remaps:
+  - `Ctrl+Shift+C` copies the selected name or other text and immediately searches it in a new default-browser tab
+  - `Ctrl+Option+V` searches the copied text in a new tab in your default browser
+  - `Alt+Space` is translated to `Command+Space` for Spotlight
+  - `Alt+Tab` is translated to `Command+Tab` for the macOS app switcher
+  - `Alt+Backtick` / `Alt+~` is translated to `Command+Backtick` for cycling windows in the current app
+  - `Ctrl+V`, `Ctrl+C`, `Ctrl+T`, `Ctrl+W`, and similar Windows muscle-memory shortcuts are translated to Mac `Command` shortcuts
+  - `Ctrl+Enter` is translated to `Command+Enter` for sending/submitting in apps that support it
+  - `Ctrl+left-click` is translated to `Command+left-click` for opening links in Chrome-style browsers
+  - `Ctrl+Delete` is translated to `Option+Delete` for deleting one word at a time
+  - `Ctrl+Tab` and `Ctrl+Shift+Tab` are left alone for browser tab cycling
+  - `Ctrl+Left/Right/Up/Down` or `Fn/Globe+Left/Right/Up/Down` snaps the focused window like Windows
+  - Repeating `Ctrl+Left/Right` from a side snap throws the window to the neighboring monitor
+  - `Ctrl+Shift+Left/Right` or `Fn/Globe+Shift+Left/Right` moves the focused window to the physically neighboring display
+- Center click closes browser tabs, opens links or Gmail inbox messages in a new tab, and toggles Windows-style auto-scroll elsewhere
 - Adjustable screenshot chord timing window (20-200 ms)
 - Menu bar status and a full Settings window for behavior + permissions
 
@@ -31,8 +40,6 @@ The app is built with SwiftUI/AppKit and runs as a menu bar extra (`LSUIElement`
   - Accessibility
   - Input Monitoring
   - Screen & System Audio Recording (Screen Recording)
-
-For Dictation integration, set the macOS Dictation shortcut to `Control + Option + Command + D`.
 
 ## Install (Prebuilt App)
 
@@ -63,16 +70,41 @@ If the app is not listed in a macOS privacy pane, use the `+` button and add `Vi
 Default actions:
 
 - `Caps Lock` or `Left + Right mouse chord`: start interactive screenshot capture
-- `Back + Forward`: paste clipboard (`Cmd+V`)
-- `Forward`: toggle Dictation (and send `Return` when stopping Dictation)
+- `Ctrl+Shift+C`: copy the selected name or other text and immediately search it in a new default-browser tab
+- `Ctrl+Option+V`: search the copied name or other text in a new default-browser tab
+- `Alt+Space`: open Spotlight with Command+Space behavior
+- `Alt+Tab`: cycle apps with Command+Tab app-switcher behavior
+- `Alt+Backtick` / `Alt+~`: cycle windows in the current app
+- `Ctrl+V`: paste the clipboard with Windows muscle memory
+- `Ctrl+Enter`: send or submit in apps that use Command+Enter
+- `Ctrl+left-click`: open links with Command-click behavior
+- `Ctrl+Delete`: delete the previous word
+- `Ctrl+Tab`: cycle browser tabs
+- `Ctrl+Left/Right`: snap the focused window to the left or right half
+- `Fn/Globe+Left/Right`: snap the focused window to the left or right half on laptop keyboards
+- `Ctrl+Left/Right`, repeated from a side snap: move to the neighboring monitor
+- `Fn/Globe+Left/Right`, repeated from a side snap: move to the neighboring monitor
+- `Ctrl+Up` or `Fn/Globe+Up`: maximize the focused window, or snap a side-snapped window to the top quarter
+- `Ctrl+Down` or `Fn/Globe+Down`: restore from maximize, or snap a side-snapped window to the bottom quarter
+- `Ctrl+Shift+Left/Right`: move the focused window across monitors
+- `Fn/Globe+Shift+Left/Right`: move the focused window across monitors on laptop keyboards
+- `Center click` over a browser tab: close that tab
+- `Center click` over a link or Gmail inbox message: open it in a new browser tab
+- `Center click` elsewhere: toggle auto-scroll; farther from the anchor scrolls faster
 
 All shortcuts can be enabled/disabled in **Settings -> Behavior**.
 
 ## Build and Run from Source
 
 ```bash
-swift build
-swift run vibe-mouse
+./scripts/dev-run.sh
+```
+
+By default, `dev-run` refreshes the installed app bundle and launches that copy so the app you click in macOS stays in sync with the latest local build.
+If you explicitly want the raw repo binary instead, run:
+
+```bash
+VIBE_MOUSE_DIRECT_RUN=1 ./scripts/dev-run.sh
 ```
 
 You can also open the package in Xcode:
@@ -92,10 +124,19 @@ For faster iteration against an installed app bundle, use:
 What it does:
 
 - builds the package
+- uses repo-local SwiftPM/module cache directories so local toolchain caches do not need writable home-directory paths
 - copies `.build/debug/vibe-mouse` into `Vibe Mouse.app`
 - bumps `CFBundleVersion`
 - signs with a local self-generated dev identity in `~/.vibe-mouse-signing`
 - restarts the app
+- keeps the installed app bundle as the default development launch target, which avoids version confusion between a repo binary and an older app in `/Applications`
+
+If you prefer the raw Swift commands, this repo expects a writable local scratch path:
+
+```bash
+swift build --disable-sandbox --scratch-path .build/scratch
+$(swift build --disable-sandbox --scratch-path .build/scratch --show-bin-path)/vibe-mouse
+```
 
 Optional env var:
 
@@ -103,7 +144,7 @@ Optional env var:
 
 ## Repo Layout
 
-- `Sources/VibeMouse/` - app code (UI, event tap monitor, screenshot/paste/dictation services)
+- `Sources/VibeMouse/` - app code (UI, event tap monitor, screenshot, auto-scroll, and window tiling services)
 - `scripts/dev-restart.sh` - local build/sign/restart helper
 - `INSTALL.md` - end-user install and troubleshooting notes
 - `dist/` - packaged app/release artifacts
@@ -113,4 +154,3 @@ Optional env var:
 - If shortcuts do not fire, verify all permissions and restart the app.
 - If monitor status says event tap is unavailable, re-check Accessibility + Input Monitoring and relaunch.
 - If screenshots fail, re-check Screen Recording permission.
-- If Dictation does not toggle, confirm the Dictation shortcut matches `Control + Option + Command + D`.
