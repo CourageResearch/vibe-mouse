@@ -12,12 +12,34 @@ struct WindowSwitcherLayout {
             columns = max(1, min(4, windowCount, Int((maxWidth - 36) / 244)))
             width = min(maxWidth, max(330, CGFloat(columns) * 244 + 36))
             let rows = min(3, max(1, (windowCount + columns - 1) / columns))
-            height = min(max(240, screenSize.height - 64), 72 + CGFloat(rows) * 204)
+            height = min(max(240, screenSize.height - 64), 72 + CGFloat(rows) * 196)
         } else {
             columns = 1
             width = min(maxWidth, max(330, CGFloat(windowCount) * 244 + 36))
             height = 257
         }
+    }
+}
+
+struct WindowSwitcherHitRegions: Equatable {
+    var viewport: CGRect = .zero
+    var cards: [UUID: CGRect] = [:]
+
+    func target(at point: CGPoint) -> WindowSwitcherPointerTarget {
+        guard viewport.contains(point), let card = cards.first(where: { $0.value.contains(point) }) else {
+            return .background
+        }
+        return .window(card.key)
+    }
+}
+
+private struct WindowSwitcherHitRegionsKey: PreferenceKey {
+    static let defaultValue = WindowSwitcherHitRegions()
+
+    static func reduce(value: inout WindowSwitcherHitRegions, nextValue: () -> WindowSwitcherHitRegions) {
+        let next = nextValue()
+        if !next.viewport.isEmpty { value.viewport = next.viewport }
+        value.cards.merge(next.cards, uniquingKeysWith: { _, new in new })
     }
 }
 
@@ -29,6 +51,8 @@ final class WindowSwitcherViewModel: ObservableObject {
     var appName = "App"
     var appIcon: NSImage?
     var appIcons: [pid_t: NSImage] = [:]
+    var onChooseWindow: ((UUID) -> Void)?
+    var hitRegions = WindowSwitcherHitRegions()
     var scope: WindowSwitchScope = .currentApplication
     var layout = WindowSwitcherLayout(scope: .currentApplication, windowCount: 1,
                                      screenSize: CGSize(width: 1200, height: 800))
@@ -38,6 +62,11 @@ final class WindowSwitcherViewModel: ObservableObject {
 protocol WindowSwitcherPresentation {
     func show(model: WindowSwitcherViewModel)
     func hide()
+    func pointerTarget(at point: CGPoint) -> WindowSwitcherPointerTarget?
+}
+
+private final class WindowSwitcherHostingView: NSHostingView<AnyView> {
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 }
 
 @MainActor
@@ -62,13 +91,33 @@ final class WindowSwitcherPanel: WindowSwitcherPresentation {
         panel.hasShadow = true
         panel.level = .popUpMenu
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient, .ignoresCycle]
-        panel.ignoresMouseEvents = true
-        panel.contentView = NSHostingView(rootView: WindowSwitcherView(model: model).frame(width: width, height: height))
+        panel.ignoresMouseEvents = false
+        panel.contentView = WindowSwitcherHostingView(rootView: AnyView(
+            WindowSwitcherView(model: model).frame(width: width, height: height)))
         panel.orderFrontRegardless()
         self.panel = panel
+        self.model = model
     }
 
     func hide() { panel?.orderOut(nil) }
+
+    private weak var model: WindowSwitcherViewModel?
+
+    func pointerTarget(at point: CGPoint) -> WindowSwitcherPointerTarget? {
+        guard let panel, panel.isVisible, let model else { return nil }
+        let screenTop = NSScreen.screens.first?.frame.maxY ?? 0
+        return Self.pointerTarget(at: point, panelFrame: panel.frame, screenTop: screenTop, regions: model.hitRegions)
+    }
+
+    static func pointerTarget(at point: CGPoint, panelFrame: CGRect, screenTop: CGFloat,
+                              regions: WindowSwitcherHitRegions) -> WindowSwitcherPointerTarget? {
+        // CG events and SwiftUI use top-left coordinates; AppKit window frames
+        // use bottom-left coordinates relative to the primary display.
+        let origin = CGPoint(x: panelFrame.minX, y: screenTop - panelFrame.maxY)
+        let local = CGPoint(x: point.x - origin.x, y: point.y - origin.y)
+        guard CGRect(origin: .zero, size: panelFrame.size).contains(local) else { return nil }
+        return regions.target(at: local)
+    }
 }
 
 private struct SwitcherMaterial: NSViewRepresentable {
@@ -85,6 +134,7 @@ private struct SwitcherMaterial: NSViewRepresentable {
 
 struct WindowSwitcherView: View {
     @ObservedObject var model: WindowSwitcherViewModel
+    @State private var hoveredWindow: UUID?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -116,6 +166,10 @@ struct WindowSwitcherView: View {
                         }
                     }
                 }
+                .background(GeometryReader { geometry in
+                    Color.clear.preference(key: WindowSwitcherHitRegionsKey.self,
+                        value: WindowSwitcherHitRegions(viewport: geometry.frame(in: .named("windowSwitcher"))))
+                })
                 .onAppear { reader.scrollTo(model.selectedIndex, anchor: .center) }
                 .onChange(of: model.selectedIndex) { index in reader.scrollTo(index, anchor: .center) }
             }
@@ -125,11 +179,25 @@ struct WindowSwitcherView: View {
         .clipShape(RoundedRectangle(cornerRadius: 22))
         .overlay(RoundedRectangle(cornerRadius: 22).strokeBorder(.white.opacity(0.16), lineWidth: 1))
         .environment(\.colorScheme, .dark)
+        .coordinateSpace(name: "windowSwitcher")
+        .onPreferenceChange(WindowSwitcherHitRegionsKey.self) { model.hitRegions = $0 }
     }
 
     private var windowCards: some View {
         ForEach(Array(model.windows.enumerated()), id: \.element.id) { index, window in
-            windowCard(window, selected: index == model.selectedIndex).id(index)
+            Button { model.onChooseWindow?(window.id) } label: {
+                windowCard(window, selected: index == model.selectedIndex)
+            }
+            .buttonStyle(.plain)
+            .onHover { inside in
+                if inside { hoveredWindow = window.id }
+                else if hoveredWindow == window.id { hoveredWindow = nil }
+            }
+            .background(GeometryReader { geometry in
+                Color.clear.preference(key: WindowSwitcherHitRegionsKey.self,
+                    value: WindowSwitcherHitRegions(cards: [window.id: geometry.frame(in: .named("windowSwitcher"))]))
+            })
+            .id(index)
         }
     }
 
@@ -155,18 +223,16 @@ struct WindowSwitcherView: View {
                 if model.scope == .allApplications, let icon = model.appIcons[window.processIdentifier] {
                     Image(nsImage: icon).resizable().frame(width: 22, height: 22)
                 }
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(window.title).font(.system(size: 12, weight: selected ? .semibold : .regular))
-                        .lineLimit(1).truncationMode(.middle)
-                    if model.scope == .allApplications {
-                        Text(window.appName).font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(1)
-                    }
-                }.frame(maxWidth: .infinity, alignment: .leading)
+                Text(window.title).font(.system(size: 12, weight: selected ? .semibold : .regular))
+                    .lineLimit(1).truncationMode(.middle)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
         .padding(10)
         .frame(width: 232)
-        .background(RoundedRectangle(cornerRadius: 15).fill(.white.opacity(selected ? 0.16 : 0.04)))
+        .background(RoundedRectangle(cornerRadius: 15)
+            .fill(.white.opacity(selected ? 0.16 : hoveredWindow == window.id ? 0.10 : 0.04)))
+        .contentShape(RoundedRectangle(cornerRadius: 15))
         .overlay(RoundedRectangle(cornerRadius: 15).strokeBorder(
             selected ? Color.accentColor : .clear, lineWidth: 3))
         .accessibilityElement(children: .ignore)

@@ -62,6 +62,8 @@ Palm-friendly Windows-style shortcuts are translated while Vibe Mouse is enabled
 - **Alt + Space** opens Spotlight with macOS Command+Space behavior.
 - **Alt + Tab** opens a thumbnail grid of individual windows from all apps. Keep Alt held and tap Tab to cycle, add Shift to go backwards, or use the arrows to move around the grid, then release Alt to choose. Escape cancels. Command+Tab keeps the native macOS app switcher.
 - **Command + Backtick**, **Ctrl + Backtick**, or **Alt + Backtick** opens a preview of the current app's windows. Hold the modifier and keep tapping the backtick/tilde key to cycle; add **Shift** to reverse, release to choose, or press **Escape** to cancel. Minimized windows are included. Thumbnails need Screen Recording permission and macOS 14 or later; otherwise titles and app icons are shown.
+- In either preview, **click a window card** to select it directly. Clicking outside closes the preview.
+- Recent thumbnails are reused while captures refresh, including for minimized windows. Missing previews retry automatically and when selected. The cache holds up to 48 thumbnails in memory for two minutes after capture; nothing is saved or uploaded.
 - **Ctrl + V** pastes with macOS Command+V.
 - **Ctrl + C**, **Ctrl + T**, **Ctrl + W**, and similar shortcuts map to their Mac Command equivalents.
 - **Ctrl + Enter** sends or submits in apps that use macOS Command+Enter.

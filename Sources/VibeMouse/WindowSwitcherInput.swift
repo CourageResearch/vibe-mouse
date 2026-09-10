@@ -18,8 +18,14 @@ enum WindowSwitchAction: Equatable, Sendable {
     case beginAllWindows(backwards: Bool)
     case step(backwards: Bool)
     case moveRow(backwards: Bool)
+    case chooseWindow(UUID)
     case finish
     case cancel
+}
+
+enum WindowSwitcherPointerTarget: Equatable {
+    case background
+    case window(UUID)
 }
 
 enum WindowSwitchScope: Equatable, Sendable {

@@ -217,6 +217,9 @@ final class AppModel: ObservableObject {
         self.windowSwitcherService.onDismiss = { [weak self] in
             self?.monitor.dismissWindowSwitcher()
         }
+        self.monitor.windowSwitcherPointerTarget = { [weak self] point in
+            MainActor.assumeIsolated { self?.windowSwitcherService.pointerTarget(at: point) }
+        }
         self.windowSwitcherService.onStatus = { [weak self] message in
             self?.lastActionMessage = message
         }

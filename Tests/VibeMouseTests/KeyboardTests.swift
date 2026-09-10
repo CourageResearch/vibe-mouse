@@ -113,6 +113,86 @@ final class KeyboardTests: XCTestCase {
         XCTAssertTrue(emitted.isEmpty)
     }
 
+    func testPreviewClickChoosesCardAndConsumesMouseUpEvenAfterModifierRelease() async {
+        for (flags, modifierCode) in [(CGEventFlags.maskAlternate, kVK_Option),
+                                      (.maskControl, kVK_Control), (.maskCommand, kVK_Command)] {
+            let monitor = makeMonitor()
+            var actions: [WindowSwitchAction] = []
+            monitor.onWindowSwitchAction = { actions.append($0) }
+            monitor.postEvent = { _ in XCTFail("Preview click emitted a shortcut") }
+            monitor.shouldSuppressPrimaryClick = { XCTFail("Preview click reached auto-scroll"); return true }
+            monitor.onChord = { XCTFail("Preview click started a screenshot") }
+            let id = UUID()
+            var hit: WindowSwitcherPointerTarget? = .window(id)
+            monitor.windowSwitcherPointerTarget = { _ in hit }
+            _ = monitor.handleEvent(type: .keyDown, event: key(kVK_ANSI_Grave, flags: flags))
+            let down = CGEvent(mouseEventSource: nil, mouseType: .leftMouseDown,
+                               mouseCursorPosition: CGPoint(x: 100, y: 100), mouseButton: .left)!
+            down.flags = flags
+            XCTAssertNil(monitor.handleEvent(type: .leftMouseDown, event: down))
+            modifier(modifierCode, flags: [], monitor: monitor)
+            hit = nil // The overlay can disappear before the mouse is released.
+            for type in [CGEventType.leftMouseDragged, .leftMouseUp] {
+                let event = CGEvent(mouseEventSource: nil, mouseType: type,
+                                    mouseCursorPosition: CGPoint(x: 400, y: 400), mouseButton: .left)!
+                XCTAssertNil(monitor.handleEvent(type: type, event: event))
+            }
+            await withCheckedContinuation { continuation in DispatchQueue.main.async { continuation.resume() } }
+            XCTAssertEqual(actions.filter { if case .chooseWindow = $0 { return true }; return false }, [.chooseWindow(id)])
+            XCTAssertFalse(actions.contains(.cancel))
+            XCTAssertEqual(Array(actions.suffix(2)), [.chooseWindow(id), .finish])
+        }
+    }
+
+    func testPreviewBackgroundAndOtherButtonsNeverTriggerMouseActions() async {
+        let monitor = makeMonitor()
+        var actions: [WindowSwitchAction] = []
+        monitor.onWindowSwitchAction = { actions.append($0) }
+        monitor.windowSwitcherPointerTarget = { _ in .background }
+        monitor.onChord = { XCTFail("Preview mouse chord started a screenshot") }
+        monitor.onSideButtonDown = { _ in XCTFail("Preview middle click started auto-scroll") }
+        monitor.interceptedSideMouseButtons = [2]
+        _ = monitor.handleEvent(type: .keyDown, event: key(kVK_Tab, flags: .maskAlternate))
+        for (downType, upType, button) in [(CGEventType.leftMouseDown, CGEventType.leftMouseUp, CGMouseButton.left),
+                                           (.rightMouseDown, .rightMouseUp, .right),
+                                           (.otherMouseDown, .otherMouseUp, .center)] {
+            for type in [downType, upType] {
+                let event = CGEvent(mouseEventSource: nil, mouseType: type,
+                                    mouseCursorPosition: .zero, mouseButton: button)!
+                XCTAssertNil(monitor.handleEvent(type: type, event: event))
+            }
+        }
+        await withCheckedContinuation { continuation in DispatchQueue.main.async { continuation.resume() } }
+        XCTAssertEqual(actions, [.beginAllWindows(backwards: false)])
+    }
+
+    func testClickOutsidePreviewCancelsAndPassesThrough() async {
+        let monitor = makeMonitor()
+        var actions: [WindowSwitchAction] = []
+        monitor.onWindowSwitchAction = { actions.append($0) }
+        monitor.windowSwitcherPointerTarget = { _ in nil }
+        _ = monitor.handleEvent(type: .keyDown, event: key(kVK_Tab, flags: .maskAlternate))
+        for type in [CGEventType.leftMouseDown, .leftMouseUp] {
+            let event = CGEvent(mouseEventSource: nil, mouseType: type, mouseCursorPosition: .zero, mouseButton: .left)!
+            withExtendedLifetime(event) { XCTAssertNotNil(monitor.handleEvent(type: type, event: event)) }
+        }
+        modifier(kVK_Option, flags: [], monitor: monitor)
+        await withCheckedContinuation { continuation in DispatchQueue.main.async { continuation.resume() } }
+        XCTAssertEqual(actions, [.beginAllWindows(backwards: false), .cancel])
+    }
+
+    func testPreviewScrollingBypassesGlobalMouseAcceleration() {
+        let monitor = makeMonitor()
+        monitor.windowSwitcherPointerTarget = { _ in .background }
+        monitor.reverseScrollingEnabled = true
+        monitor.mouseScrollSpeed = 36
+        let event = CGEvent(scrollWheelEvent2Source: nil, units: .line, wheelCount: 1,
+                            wheel1: 3, wheel2: 0, wheel3: 0)!
+        let original = event.getIntegerValueField(.scrollWheelEventDeltaAxis1)
+        withExtendedLifetime(event) { XCTAssertNotNil(monitor.handleEvent(type: .scrollWheel, event: event)) }
+        XCTAssertEqual(event.getIntegerValueField(.scrollWheelEventDeltaAxis1), original)
+    }
+
     func testCtrlYReleasesZEvenWhenCtrlWasReleasedFirst() {
         let monitor = makeMonitor()
         let down = key(kVK_ANSI_Y, flags: [.maskControl])

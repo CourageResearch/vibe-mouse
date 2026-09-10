@@ -146,8 +146,10 @@ private final class FakeSwitcherAccess: WindowSwitcherAccess {
 private final class FakeSwitcherPanel: WindowSwitcherPresentation {
     var visible = false
     var showCount = 0
+    var pointerHit: WindowSwitcherPointerTarget?
     func show(model: WindowSwitcherViewModel) { visible = true; showCount += 1 }
     func hide() { visible = false }
+    func pointerTarget(at point: CGPoint) -> WindowSwitcherPointerTarget? { visible ? pointerHit : nil }
 }
 
 @MainActor
@@ -199,6 +201,48 @@ final class WindowSwitcherServiceTests: XCTestCase {
         XCTAssertEqual(access.requestedScopes, [.allApplications])
         XCTAssertEqual(access.activatedOwners, [choices[2].processIdentifier])
         XCTAssertEqual(panel.showCount, 0)
+    }
+
+    func testClickChoosesItsWindowInEitherPreviewAndReleaseCannotChooseAgain() async {
+        for action in [WindowSwitchAction.begin(.control, backwards: false), .beginAllWindows(backwards: false)] {
+            let access = FakeSwitcherAccess(), panel = FakeSwitcherPanel()
+            let service = WindowSwitcherService(access: access, presentation: panel, capturePreviews: false)
+            let choices = windows(4)
+            var dismissals = 0
+            service.onDismiss = { dismissals += 1 }
+            service.handle(action)
+            await drain()
+            access.resolve(choices)
+            await drain()
+            XCTAssertEqual(service.model.selectedIndex, 1)
+            service.model.onChooseWindow?(choices[3].id)
+            service.handle(.finish)
+            service.model.onChooseWindow?(choices[3].id)
+            XCTAssertEqual(access.activated, [choices[3].id])
+            XCTAssertEqual(access.activatedOwners, [choices[3].processIdentifier])
+            XCTAssertEqual(dismissals, 1)
+            XCTAssertFalse(panel.visible)
+        }
+    }
+
+    func testPointerHitTestingOnlyWorksWhilePreviewIsVisibleAndIgnoresOldCards() async {
+        let access = FakeSwitcherAccess(), panel = FakeSwitcherPanel()
+        let service = WindowSwitcherService(access: access, presentation: panel, capturePreviews: false)
+        let choices = windows(3)
+        panel.pointerHit = .window(choices[2].id)
+        service.handle(.beginAllWindows(backwards: false))
+        XCTAssertNil(service.pointerTarget(at: .zero))
+        await drain()
+        access.resolve(choices)
+        await drain()
+        XCTAssertEqual(service.pointerTarget(at: .zero), .window(choices[2].id))
+        service.handle(.chooseWindow(UUID()))
+        XCTAssertTrue(panel.visible)
+        XCTAssertTrue(access.activated.isEmpty)
+        service.handle(.cancel)
+        XCTAssertNil(service.pointerTarget(at: .zero))
+        service.handle(.chooseWindow(choices[2].id))
+        XCTAssertTrue(access.activated.isEmpty)
     }
 
     func testAltShiftTabCanStartAllWindowsInReverse() async {
@@ -351,7 +395,7 @@ final class WindowSwitcherServiceTests: XCTestCase {
 
     // Opt-in artifact for visual QA; renders only this app's view with fixture
     // content, never captures or manipulates the user's desktop.
-    func testRenderPreviewFixture() throws {
+    func testRenderPreviewFixture() async throws {
         guard let output = ProcessInfo.processInfo.environment["VIBE_MOUSE_PREVIEW_RENDER"] else {
             throw XCTSkip("Set VIBE_MOUSE_PREVIEW_RENDER to export the preview fixture.")
         }
@@ -379,6 +423,12 @@ final class WindowSwitcherServiceTests: XCTestCase {
         let window = NSWindow(contentRect: view.frame, styleMask: .borderless, backing: .buffered, defer: false)
         window.contentView = view
         view.layoutSubtreeIfNeeded()
+        await drain()
+        XCTAssertEqual(model.hitRegions.cards.count, model.windows.count)
+        for choice in model.windows {
+            let frame = try XCTUnwrap(model.hitRegions.cards[choice.id])
+            XCTAssertEqual(model.hitRegions.target(at: CGPoint(x: frame.midX, y: frame.midY)), .window(choice.id))
+        }
         let bitmap = try XCTUnwrap(view.bitmapImageRepForCachingDisplay(in: view.bounds))
         view.cacheDisplay(in: view.bounds, to: bitmap)
         let png = try XCTUnwrap(bitmap.representation(using: .png, properties: [:]))
@@ -386,7 +436,7 @@ final class WindowSwitcherServiceTests: XCTestCase {
         window.contentView = nil
     }
 
-    func testRenderAllWindowsFixture() throws {
+    func testRenderAllWindowsFixture() async throws {
         guard let output = ProcessInfo.processInfo.environment["VIBE_MOUSE_ALL_WINDOWS_RENDER"] else {
             throw XCTSkip("Set VIBE_MOUSE_ALL_WINDOWS_RENDER to export the all-windows fixture.")
         }
@@ -434,6 +484,10 @@ final class WindowSwitcherServiceTests: XCTestCase {
         let window = NSWindow(contentRect: view.frame, styleMask: .borderless, backing: .buffered, defer: false)
         window.contentView = view
         view.layoutSubtreeIfNeeded()
+        await drain()
+        let selected = model.windows[model.selectedIndex]
+        let selectedFrame = try XCTUnwrap(model.hitRegions.cards[selected.id])
+        XCTAssertEqual(model.hitRegions.target(at: CGPoint(x: selectedFrame.midX, y: selectedFrame.midY)), .window(selected.id))
         let bitmap = try XCTUnwrap(view.bitmapImageRepForCachingDisplay(in: view.bounds))
         view.cacheDisplay(in: view.bounds, to: bitmap)
         try XCTUnwrap(bitmap.representation(using: .png, properties: [:])).write(to: URL(fileURLWithPath: output))
@@ -472,5 +526,37 @@ final class WindowSwitcherOrderingTests: XCTestCase {
         let size = CGSize(width: 1200, height: 800)
         XCTAssertEqual(WindowSwitcherLayout(scope: .allApplications, windowCount: 80, screenSize: size).height,
                        WindowSwitcherLayout(scope: .allApplications, windowCount: 12, screenSize: size).height)
+    }
+}
+
+@MainActor
+final class WindowSwitcherPointerTests: XCTestCase {
+    func testPointerCoordinatesWorkOnDisplaysAboveBelowAndLeftOfPrimary() {
+        let id = UUID()
+        let regions = WindowSwitcherHitRegions(viewport: CGRect(x: 18, y: 50, width: 300, height: 180),
+            cards: [id: CGRect(x: 24, y: 58, width: 232, height: 160)])
+        for origin in [CGPoint(x: 100, y: 100), CGPoint(x: -700, y: 100),
+                       CGPoint(x: 100, y: 1200), CGPoint(x: 100, y: -900)] {
+            let panelFrame = CGRect(origin: origin, size: CGSize(width: 330, height: 257))
+            let topLeft = CGPoint(x: panelFrame.minX, y: 1080 - panelFrame.maxY)
+            XCTAssertEqual(WindowSwitcherPanel.pointerTarget(
+                at: CGPoint(x: topLeft.x + 100, y: topLeft.y + 100), panelFrame: panelFrame,
+                screenTop: 1080, regions: regions), .window(id))
+            XCTAssertEqual(WindowSwitcherPanel.pointerTarget(
+                at: CGPoint(x: topLeft.x + 100, y: topLeft.y + 20), panelFrame: panelFrame,
+                screenTop: 1080, regions: regions), .background)
+            XCTAssertNil(WindowSwitcherPanel.pointerTarget(
+                at: CGPoint(x: topLeft.x - 1, y: topLeft.y + 100), panelFrame: panelFrame,
+                screenTop: 1080, regions: regions))
+        }
+    }
+
+    func testScrolledCardsCannotBeClickedBehindHeaderOrOutsideViewport() {
+        let id = UUID()
+        let regions = WindowSwitcherHitRegions(viewport: CGRect(x: 18, y: 50, width: 300, height: 180),
+            cards: [id: CGRect(x: 24, y: -30, width: 232, height: 160)])
+        XCTAssertEqual(regions.target(at: CGPoint(x: 100, y: 20)), .background)
+        XCTAssertEqual(regions.target(at: CGPoint(x: 100, y: 70)), .window(id))
+        XCTAssertEqual(regions.target(at: CGPoint(x: 310, y: 70)), .background)
     }
 }

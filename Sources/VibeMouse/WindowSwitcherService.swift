@@ -1,5 +1,4 @@
 import AppKit
-import ScreenCaptureKit
 
 @MainActor
 final class WindowSwitcherService {
@@ -23,17 +22,20 @@ final class WindowSwitcherService {
     private let access: any WindowSwitcherAccess
     private let presentation: any WindowSwitcherPresentation
     private let capturePreviews: Bool
+    private let previewLoader: WindowPreviewLoader
     private var session: Session?
     private var discoveryTask: Task<Void, Never>?
-    private var previewTask: Task<Void, Never>?
     private var activationObserver: NSObjectProtocol?
 
     init(access: any WindowSwitcherAccess = SystemWindowSwitcherAccess(),
          presentation: any WindowSwitcherPresentation = WindowSwitcherPanel(),
-         capturePreviews: Bool = true) {
+         capturePreviews: Bool = true,
+         previewLoader: WindowPreviewLoader = WindowPreviewLoader()) {
         self.access = access
         self.presentation = presentation
         self.capturePreviews = capturePreviews
+        self.previewLoader = previewLoader
+        model.onChooseWindow = { [weak self] id in self?.handle(.chooseWindow(id)) }
         activationObserver = NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main
         ) { [weak self] notification in
@@ -61,6 +63,7 @@ final class WindowSwitcherService {
             guard session != nil, session?.finishWhenReady == false else { return }
             session?.offset += backwards ? -1 : 1
             model.selectedIndex = session?.selectedIndex ?? 0
+            prioritizeSelectedPreview()
 
         case .moveRow(let backwards):
             guard session != nil, session?.finishWhenReady == false else { return }
@@ -69,7 +72,13 @@ final class WindowSwitcherService {
             } else {
                 session?.offset += (backwards ? -1 : 1) * model.layout.columns
                 model.selectedIndex = session?.selectedIndex ?? 0
+                prioritizeSelectedPreview()
             }
+
+        case .chooseWindow(let id):
+            guard let windows = session?.windows, let index = windows.firstIndex(where: { $0.id == id }) else { return }
+            session?.offset = index
+            commit(notify: true)
 
         case .finish:
             guard session != nil else { return }
@@ -83,6 +92,11 @@ final class WindowSwitcherService {
         case .cancel:
             clear()
         }
+    }
+
+    func pointerTarget(at point: CGPoint) -> WindowSwitcherPointerTarget? {
+        guard session?.windows != nil, session?.finishWhenReady == false else { return nil }
+        return presentation.pointerTarget(at: point)
     }
 
     private func begin(scope: WindowSwitchScope, backwards: Bool) {
@@ -120,10 +134,10 @@ final class WindowSwitcherService {
         }
     }
 
-    private func commit() {
+    private func commit(notify: Bool = false) {
         guard let session, let windows = session.windows, !windows.isEmpty else { return }
         let selected = windows[session.selectedIndex]
-        clear()
+        clear(notify: notify)
         let success = access.activate(selected)
         onStatus?(success ? "Switched to \(selected.title)." : "Couldn't focus that window. It may have closed.")
     }
@@ -131,55 +145,29 @@ final class WindowSwitcherService {
     private func clear(notify: Bool = false) {
         discoveryTask?.cancel()
         discoveryTask = nil
-        previewTask?.cancel()
-        previewTask = nil
+        previewLoader.stop()
         session = nil
         presentation.hide()
         model.windows = []
         model.previews = [:]
         model.appIcons = [:]
+        model.hitRegions = WindowSwitcherHitRegions()
         if notify { onDismiss?() }
     }
 
     private func loadPreviews(_ windows: [SwitchableWindow], sessionID: UUID) {
         guard capturePreviews else { return }
-        guard CGPreflightScreenCaptureAccess() else {
-            onStatus?("Enable Screen Recording in Vibe Mouse Settings for thumbnails.")
-            return
-        }
-        guard #available(macOS 14.0, *) else {
-            onStatus?("Window thumbnails require macOS 14 or later.")
-            return
-        }
-        // Capture only the listed windows, once per switch. Images stay in
-        // memory and are discarded on dismissal; nothing is saved or uploaded.
-        previewTask = Task { [weak self] in
-            do {
-                let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: false)
-                guard let self, !Task.isCancelled, self.session?.id == sessionID else { return }
-                let selectedIndex = self.model.selectedIndex
-                let captureOrder = Array(windows[selectedIndex...]) + Array(windows[..<selectedIndex])
-                for window in captureOrder {
-                    guard !Task.isCancelled, self.session?.id == sessionID else { return }
-                    guard !window.minimized, let id = window.windowID,
-                          let source = content.windows.first(where: { $0.windowID == id }) else { continue }
-                    let config = SCStreamConfiguration()
-                    let scale = min(1, 640 / max(1, max(source.frame.width, source.frame.height)))
-                    config.width = max(1, Int(source.frame.width * scale))
-                    config.height = max(1, Int(source.frame.height * scale))
-                    config.showsCursor = false
-                    config.ignoreShadowsSingleWindow = true
-                    let filter = SCContentFilter(desktopIndependentWindow: source)
-                    if let image = try? await SCScreenshotManager.captureImage(contentFilter: filter, configuration: config) {
-                        guard !Task.isCancelled, self.session?.id == sessionID else { return }
-                        self.model.previews[window.id] = NSImage(cgImage: image,
-                            size: NSSize(width: image.width, height: image.height))
-                    }
-                }
-            } catch {
-                guard let self, self.session?.id == sessionID else { return }
-                self.onStatus?("Thumbnails unavailable. You can still switch by window title.")
-            }
-        }
+        previewLoader.start(windows: windows, selectedIndex: model.selectedIndex, onPreview: { [weak self] id, image in
+            guard let self, self.session?.id == sessionID else { return }
+            self.model.previews[id] = NSImage(cgImage: image, size: NSSize(width: image.width, height: image.height))
+        }, onStatus: { [weak self] status in
+            guard let self, self.session?.id == sessionID else { return }
+            self.onStatus?(status)
+        })
+    }
+
+    private func prioritizeSelectedPreview() {
+        guard model.windows.indices.contains(model.selectedIndex) else { return }
+        previewLoader.select(model.windows[model.selectedIndex].id)
     }
 }

@@ -60,7 +60,9 @@ final class MouseChordMonitor {
     var onPrimaryClickDown: (@MainActor @Sendable () -> Void)?
     var onWindowArrowShortcut: (@MainActor @Sendable (_ shortcut: WindowArrowShortcut) -> Void)?
     var onWindowSwitchAction: (@MainActor @Sendable (WindowSwitchAction) -> Void)?
+    var windowSwitcherPointerTarget: ((CGPoint) -> WindowSwitcherPointerTarget?)?
     private var windowSwitcherInput = WindowSwitcherInput()
+    private var suppressedWindowSwitcherMouseButtons: Set<Int64> = []
     var onCopyAndSearchShortcut: (@MainActor @Sendable (_ previousPasteboardChangeCount: Int) -> Void)?
     var onScrollDebugSample: (@MainActor @Sendable (_ sample: ScrollDebugSample) -> Void)?
     var shouldSuppressPrimaryClick: (() -> Bool)?
@@ -248,6 +250,11 @@ final class MouseChordMonitor {
 
         if type.rawValue == nxSystemDefinedEventTypeRawValue {
             return handleSystemDefinedEvent(event)
+        }
+
+        if handleWindowSwitcherPointerEvent(type: type, event: event) { return nil }
+        if type == .scrollWheel, windowSwitcherPointerTarget?(event.location) != nil {
+            return Unmanaged.passUnretained(event)
         }
 
         switch type {
@@ -1569,6 +1576,34 @@ final class MouseChordMonitor {
         _ = windowSwitcherInput.cancel()
     }
 
+    private func handleWindowSwitcherPointerEvent(type: CGEventType, event: CGEvent) -> Bool {
+        let button: Int64
+        switch type {
+        case .leftMouseDown, .leftMouseUp, .leftMouseDragged: button = 0
+        case .rightMouseDown, .rightMouseUp, .rightMouseDragged: button = 1
+        case .otherMouseDown, .otherMouseUp, .otherMouseDragged:
+            button = event.getIntegerValueField(.mouseEventButtonNumber)
+        default: return false
+        }
+
+        switch type {
+        case .leftMouseDown, .rightMouseDown, .otherMouseDown:
+            guard let target = windowSwitcherPointerTarget?(event.location) else { return false }
+            suppressedWindowSwitcherMouseButtons.insert(button)
+            if case .window(let id) = target, button == 0 {
+                // Resolve the card before modifier release can commit a different
+                // selection. Consume the complete click so it never reaches the
+                // selected app, including while Ctrl/Command/Alt is still held.
+                dispatchWindowSwitchAction(.chooseWindow(id))
+            }
+            return true
+        case .leftMouseUp, .rightMouseUp, .otherMouseUp:
+            return suppressedWindowSwitcherMouseButtons.remove(button) != nil
+        default:
+            return suppressedWindowSwitcherMouseButtons.contains(button)
+        }
+    }
+
     private func dispatchWindowSwitchAction(_ action: WindowSwitchAction?) {
         guard let action, let callback = onWindowSwitchAction else { return }
         // FIFO delivery matters when the modifier is released before discovery finishes.
@@ -1585,6 +1620,7 @@ final class MouseChordMonitor {
     private func resetState() {
         dispatchWindowSwitchAction(.cancel)
         windowSwitcherInput.reset()
+        suppressedWindowSwitcherMouseButtons.removeAll()
         resetMouseChordState()
         endAltCommandModeIfNeeded(flags: [])
         for keyCode in suppressedAltCommandKeyUps {

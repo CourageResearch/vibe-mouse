@@ -468,6 +468,7 @@ struct SettingsView: View {
                 shortcutRow("Alt+Tab / Alt+Shift+Tab", "Preview windows from all apps; cycle forward / backwards; release Alt to choose")
                 shortcutRow("⌘+` / Ctrl+` / Alt+`", "Preview this app's windows; keep tapping, release the modifier to choose")
                 shortcutRow("Arrows / Esc / Enter in preview", "Navigate / cancel / choose. Add Shift to reverse while cycling.")
+                shortcutRow("Click a preview card", "Switch directly to that window. Click outside to close the preview.")
                 shortcutRow("Alt+Space", "Spotlight")
                 if model.searchClipboardEnabled {
                     shortcutRow("Ctrl+Shift+C", "Copy selection and search Google in your browser")

@@ -102,9 +102,11 @@ The full guide is also available in **Settings → Shortcut guide**.
 
 Hold **Command**, **Ctrl**, or **Alt** and tap the **backtick/tilde key** (\` / ~) to preview the current app's windows, including Chrome windows. Keep tapping to cycle; add **Shift** to go backwards. Release the modifier to focus the selected window. While the preview is open, **Left/Right** also changes selection, **Enter** chooses, and **Escape** cancels. A quick tap switches immediately without waiting for thumbnails. Ctrl+Tab still cycles browser tabs.
 
-The switcher includes minimized windows and restores one when selected. Thumbnails require **Screen Recording** permission and macOS 14 or later; without them, window titles and app icons remain usable. Previews stay in memory and are discarded when the switcher closes.
+You can also **click any preview card** to switch directly to that window while the preview is open. Clicking outside closes the preview. The switcher includes minimized windows and restores one when selected. Thumbnails require **Screen Recording** permission and macOS 14 or later; without them, window titles and app icons remain usable.
 
-**Alt+Tab** opens an **all-windows grid** with a separate thumbnail, title, and app icon for each window. Keep **Alt** held and tap **Tab** to continue cycling; add **Shift** to cycle backwards. **Left/Right** moves between windows, **Up/Down** moves between rows, **Enter** chooses, and **Escape** cancels. Release **Alt** to activate the selected window's app and bring that specific window forward. The grid includes minimized windows and scrolls to keep the selection visible. **Command+Tab** still uses the native macOS app switcher.
+Recent thumbnails appear immediately while fresh captures load, with priority given to the selected window. Failed captures retry automatically; selecting a missing preview retries it again. Minimized windows use their last available thumbnail when one exists. Up to 48 thumbnails stay in memory for two minutes after capture, then expire. They are never saved or uploaded. A window with no available capture or unambiguous match still shows its app icon.
+
+**Alt+Tab** opens an **all-windows grid** with a separate thumbnail, title, and app icon for each window. Keep **Alt** held and tap **Tab** to continue cycling; add **Shift** to cycle backwards. **Left/Right** moves between windows, **Up/Down** moves between rows, **Enter** chooses, and **Escape** cancels. Release **Alt** or **click a card** to activate that window's app and bring the specific window forward. The grid includes minimized windows and scrolls to keep the selection visible. **Command+Tab** still uses the native macOS app switcher.
 
 ### Window keys
 

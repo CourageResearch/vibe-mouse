@@ -8,7 +8,7 @@ struct SwitchableWindow: @unchecked Sendable, Identifiable {
     let element: AXUIElement
     let processIdentifier: pid_t
     let appName: String
-    let windowID: CGWindowID?
+    var windowID: CGWindowID?
     let title: String
     let frame: CGRect
     let minimized: Bool
@@ -112,7 +112,6 @@ private actor WindowSwitcherDiscovery {
         AXUIElementSetMessagingTimeout(app, 0.15)
         guard let elements = value(app, kAXWindowsAttribute) as? [AXUIElement] else { return [] }
         let focused = value(app, kAXFocusedWindowAttribute)
-        var usedIDs: Set<CGWindowID> = []
         var result: [SwitchableWindow] = []
 
         for element in elements {
@@ -125,26 +124,19 @@ private actor WindowSwitcherDiscovery {
             let title = value(element, kAXTitleAttribute) as? String ?? ""
             let minimized = value(element, kAXMinimizedAttribute) as? Bool ?? false
 
-            // Public AX has no window-number attribute. Match geometry and title
-            // one-to-one; an uncertain match gets an icon instead of a wrong preview.
-            let matches = descriptions.compactMap { item -> (CGWindowID, Int)? in
-                guard let id = item[kCGWindowNumber as String] as? CGWindowID, !usedIDs.contains(id),
-                      let bounds = item[kCGWindowBounds as String] as? NSDictionary,
-                      let cgFrame = CGRect(dictionaryRepresentation: bounds) else { return nil }
-                let sameFrame = abs(frame.minX - cgFrame.minX) < 2 && abs(frame.minY - cgFrame.minY) < 2
-                    && abs(frame.width - cgFrame.width) < 2 && abs(frame.height - cgFrame.height) < 2
-                let sameTitle = !title.isEmpty && item[kCGWindowName as String] as? String == title
-                guard sameFrame || sameTitle else { return nil }
-                return (id, (sameFrame ? 2 : 0) + (sameTitle ? 1 : 0))
-            }.sorted { $0.1 > $1.1 }
-            let match = matches.first.flatMap { first in
-                matches.count == 1 || matches[1].1 < first.1 ? first.0 : nil
-            }
-            if let match { usedIDs.insert(match) }
             result.append(SwitchableWindow(element: element, processIdentifier: pid, appName: application.name,
-                windowID: match, title: title.isEmpty ? "Untitled window" : title, frame: frame,
+                windowID: nil, title: title.isEmpty ? "Untitled window" : title, frame: frame,
                 minimized: minimized, isFocused: focused.map { CFEqual(element, $0) } ?? false))
         }
+        let sources = descriptions.compactMap { item -> WindowPreviewSource? in
+            guard let id = item[kCGWindowNumber as String] as? CGWindowID,
+                  let bounds = item[kCGWindowBounds as String] as? NSDictionary,
+                  let frame = CGRect(dictionaryRepresentation: bounds) else { return nil }
+            return WindowPreviewSource(windowID: id, processIdentifier: pid,
+                title: item[kCGWindowName as String] as? String ?? "", frame: frame)
+        }
+        let matches = WindowPreviewMatching.match(result, sources: sources)
+        for index in result.indices { result[index].windowID = matches[result[index].id]?.windowID }
         return result
     }
 
