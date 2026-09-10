@@ -60,18 +60,26 @@ Palm-friendly Windows-style shortcuts are translated while Vibe Mouse is enabled
 - **Ctrl + Shift + C** copies the selected name or other text and immediately searches it in a new tab in your default browser.
 - **Ctrl + Option + V** searches the copied name or other text in a new tab in your default browser.
 - **Alt + Space** opens Spotlight with macOS Command+Space behavior.
-- **Alt + Tab** cycles apps with macOS Command+Tab app-switcher behavior.
-- **Alt + Backtick** / **Alt + ~** cycles windows in the current app with macOS Command+Backtick behavior.
+- **Alt + Tab** opens a thumbnail grid of individual windows from all apps. Keep Alt held and tap Tab to cycle, add Shift to go backwards, or use the arrows to move around the grid, then release Alt to choose. Escape cancels. Command+Tab keeps the native macOS app switcher.
+- **Command + Backtick**, **Ctrl + Backtick**, or **Alt + Backtick** opens a preview of the current app's windows. Hold the modifier and keep tapping the backtick/tilde key to cycle; add **Shift** to reverse, release to choose, or press **Escape** to cancel. Minimized windows are included. Thumbnails need Screen Recording permission and macOS 14 or later; otherwise titles and app icons are shown.
 - **Ctrl + V** pastes with macOS Command+V.
 - **Ctrl + C**, **Ctrl + T**, **Ctrl + W**, and similar shortcuts map to their Mac Command equivalents.
 - **Ctrl + Enter** sends or submits in apps that use macOS Command+Enter.
 - **Ctrl + left click** opens links with macOS Command-click behavior.
-- **Ctrl + Delete** deletes the previous word with macOS Option+Delete behavior.
+- **Ctrl + Backspace** (Mac Delete) deletes the previous word; **Ctrl + forward Delete** deletes the next word.
+- **Ctrl + Home/End** moves to document start/end; add Shift to select.
 - **Ctrl + Tab** and **Ctrl + Shift + Tab** are left alone so Chrome can cycle tabs.
-- **Ctrl + Left/Right/Up/Down** or **Fn/Globe + Left/Right/Up/Down** snaps the focused window like Windows.
+- **Ctrl + Arrow**, **Ctrl + Option + Arrow**, or **Command + Arrow** controls the focused window.
 - Repeating **Ctrl + Left/Right** from a side snap throws the window to the neighboring monitor.
-- Repeating **Fn/Globe + Left/Right** from a side snap throws the window to the neighboring monitor.
-- **Ctrl + Shift + Left/Right** or **Fn/Globe + Shift + Left/Right** moves the focused window to the physically neighboring monitor.
+- Repeating **Command + Left/Right** from a side snap throws the window to the neighboring monitor.
+- **Ctrl + Shift + Left/Right** or **Command + Shift + Left/Right** moves the focused window to the physically neighboring monitor.
+- **Ctrl + Option + Shift + Left/Right** also moves directly between monitors.
+- **Up** after a half snap moves to a top quarter; another Up maximizes. **Down** steps from top quarter to half, bottom quarter, then the saved original size. Down after maximize restores the saved size.
+- Moving monitors preserves half/quarter/maximized placement. A floating window keeps its size when it fits.
+- Hold-to-repeat is ignored for window commands; tap again for the next step.
+
+See **Settings → Shortcut guide** or the [full key guide](README.md#usage).
+For word movement and selection with Ctrl+Arrow, turn off **Settings → Behavior → Use Ctrl+Arrow for windows**. Ctrl+Option+Arrow and Command+Arrow remain available for windows.
 
 Mouse controls:
 

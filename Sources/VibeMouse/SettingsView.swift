@@ -12,6 +12,7 @@ struct SettingsView: View {
                 VStack(alignment: .leading, spacing: 20) {
                     headerCard
                     behaviorCard
+                    shortcutGuideCard
                     permissionsCard
                     statusCard
                 }
@@ -97,11 +98,11 @@ struct SettingsView: View {
     }
 
     private var windowLegendGesture: String {
-        "Fn/Globe+Arrow"
+        "Command+Arrow"
     }
 
     private var windowLegendDetail: String {
-        "Snap and throw focused windows across monitors."
+        "Snap, move between monitors, and restore your previous size."
     }
 
     private var autoScrollLegendGesture: String {
@@ -131,7 +132,7 @@ struct SettingsView: View {
                 }
 
                 Text(
-                    "Global shortcuts: \(keyboardCaptureSummary) capture to clipboard, Ctrl+Shift+C copies selected text and searches it, Ctrl+Option+V searches existing clipboard text, Alt+Space Spotlight, Alt+Tab app switching, Alt+` window cycling, palm Ctrl shortcuts, Ctrl-click links, Ctrl+Delete word-delete, Ctrl+Arrow or Fn/Globe+Arrow window tiling across monitors, and center-click tab closing, link or Gmail message opening, or auto-scroll."
+                    "Windows-style keyboard shortcuts, predictable window placement, copy-and-search, and mouse actions. The shortcut guide below lists every key."
                 )
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
@@ -216,15 +217,15 @@ struct SettingsView: View {
     private var behaviorCard: some View {
         SettingsCard(
             title: "Behavior",
-            subtitle: "Tune the screenshot chord trigger and enable or disable the global mouse shortcuts."
+            subtitle: "Choose your window keys and tune screenshots, search, and scrolling."
         ) {
             VStack(alignment: .leading, spacing: 14) {
                 HStack(spacing: 12) {
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("Enable mouse shortcuts")
+                        Text("Enable keyboard and mouse shortcuts")
                             .font(.headline)
                         Text(
-                            "When enabled, the app listens globally for screenshot capture (\(screenshotListeningLegend)), Ctrl+Shift+C copy-and-search, Ctrl+Option+V clipboard search, Alt+Space Spotlight, Alt+Tab app switching, Alt+` window cycling, palm Ctrl shortcuts, Ctrl-click links, Ctrl+Delete word-delete, Ctrl+Arrow or Fn/Globe+Arrow window tiling, and center-click tab closing, link or Gmail message opening, or auto-scroll."
+                            "Enable screenshots (\(screenshotListeningLegend)), Windows-style keyboard shortcuts, window placement, and middle-click actions."
                         )
                             .font(.caption)
                             .foregroundStyle(.secondary)
@@ -243,14 +244,32 @@ struct SettingsView: View {
                             .font(.headline)
                         Text(
                             model.searchClipboardEnabled
-                                ? "Select a name and press Ctrl+Shift+C to copy and search it immediately. Ctrl+Option+V searches text already on the clipboard."
-                                : "Ctrl+Shift+C and Ctrl+Option+V pass through normally."
+                                ? "Select a name and press Ctrl+Shift+C to copy and search it immediately."
+                                : "Copy-and-search is off. Normal Ctrl-to-Command remapping still applies."
                         )
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
                     Spacer()
                     Toggle("", isOn: searchClipboardBinding)
+                        .labelsHidden()
+                        .toggleStyle(.switch)
+                }
+                .padding(14)
+                .roundedSurface()
+
+                HStack(spacing: 12) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Use Ctrl+Arrow for windows")
+                            .font(.headline)
+                        Text(model.controlArrowWindowShortcutsEnabled
+                            ? "Keep your existing window keys. Ctrl+Option+Arrow and Command+Arrow also work."
+                            : "Ctrl+Left/Right moves by word; add Shift to select. Use Command+Arrow or Ctrl+Option+Arrow for windows.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Toggle("", isOn: $model.controlArrowWindowShortcutsEnabled)
                         .labelsHidden()
                         .toggleStyle(.switch)
                 }
@@ -421,6 +440,56 @@ struct SettingsView: View {
         }
     }
 
+    private var shortcutGuideCard: some View {
+        SettingsCard(title: "Shortcut guide", subtitle: "Alt means Option (⌥) on a Mac keyboard. Command is ⌘.") {
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Windows · \(model.windowShortcutLabel)")
+                    .font(.headline)
+                Text("Plain arrows move the cursor or scroll; Shift+arrows select text. Window actions require holding one of the modifiers above.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                shortcutRow("← / →", "Snap to a half. Repeat toward the outside edge to move to the next monitor; quarters keep their row.")
+                shortcutRow("↑", "Half → top quarter → maximize. Bottom quarter → top quarter.")
+                shortcutRow("↓", "Top quarter → half → bottom quarter → restore. Maximized → previous size.")
+                shortcutRow("+ Shift + ← / →", "Move directly to the neighboring monitor, keeping your half, quarter, or floating placement.")
+                Divider()
+                Text("Everyday keys").font(.headline)
+                shortcutRow("Ctrl+C / X / V / A", "Copy / cut / paste / select all")
+                shortcutRow("Ctrl+Z / Y", "Undo / redo (Ctrl+Shift+Z also works)")
+                shortcutRow("Ctrl+T / W / Shift+T", "New tab / close tab / reopen closed tab in browsers")
+                shortcutRow("Ctrl+Tab / Ctrl+Shift+Tab", "Next / previous browser tab")
+                shortcutRow("Ctrl+L / F / S / P", "Address bar / find / save / print")
+                shortcutRow("Ctrl+N / O / R", "New / open / reload, where supported")
+                shortcutRow("Ctrl+B / I / U / K", "Bold / italic / underline / link, where supported")
+                shortcutRow("Ctrl+D / 1…9 / 0 / − / =", "App's Command equivalent: bookmark, select a tab, or zoom")
+                shortcutRow("Ctrl+Backspace / Delete", "Delete previous / next word (Mac Delete is Backspace)")
+                shortcutRow("Ctrl+Home / End", "Start / end of document; add Shift to select")
+                shortcutRow("Ctrl+Enter", "Send/submit in apps supporting Command+Enter")
+                shortcutRow("Alt+Tab / Alt+Shift+Tab", "Preview windows from all apps; cycle forward / backwards; release Alt to choose")
+                shortcutRow("⌘+` / Ctrl+` / Alt+`", "Preview this app's windows; keep tapping, release the modifier to choose")
+                shortcutRow("Arrows / Esc / Enter in preview", "Navigate / cancel / choose. Add Shift to reverse while cycling.")
+                shortcutRow("Alt+Space", "Spotlight")
+                if model.searchClipboardEnabled {
+                    shortcutRow("Ctrl+Shift+C", "Copy selection and search Google in your browser")
+                }
+                Divider()
+                Text("Mouse and screenshots").font(.headline)
+                shortcutRow("Middle click", "Browser tab: close. Link or Gmail message: open new tab. Elsewhere: auto-scroll.")
+                shortcutRow("Ctrl+click", "Command-click behavior, including links in a new tab")
+                shortcutRow(captureLegendGesture, "Select an area; screenshot goes to the clipboard. Escape cancels.")
+                shortcutRow("Escape / middle click", "Stop auto-scroll; a left click also stops it")
+            }
+        }
+    }
+
+    private func shortcutRow(_ keys: String, _ detail: String) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(keys).font(.system(.subheadline, design: .monospaced).weight(.medium))
+            Text(detail).font(.caption).foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
     private var keyboardCaptureSummary: String {
         model.capsLockScreenshotEnabled ? "Caps Lock + Left/Right" : "Left/Right"
     }
@@ -463,7 +532,7 @@ struct SettingsView: View {
 
                 PermissionRow(
                     title: "Screen Recording",
-                    description: "Required for interactive screenshot capture.",
+                    description: "Required for screenshots and window preview thumbnails.",
                     isGranted: model.screenRecordingGranted,
                     requestTitle: "Request",
                     requestAction: model.requestScreenRecordingPermission,

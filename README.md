@@ -16,18 +16,19 @@ The app is built with SwiftUI/AppKit and runs as a menu bar extra (`LSUIElement`
 - Screenshots are copied to the clipboard without auto-pasting
 - Palm-friendly keyboard and click remaps:
   - `Ctrl+Shift+C` copies the selected name or other text and immediately searches it in a new default-browser tab
-  - `Ctrl+Option+V` searches the copied text in a new tab in your default browser
   - `Alt+Space` is translated to `Command+Space` for Spotlight
-  - `Alt+Tab` is translated to `Command+Tab` for the macOS app switcher
-  - `Alt+Backtick` / `Alt+~` is translated to `Command+Backtick` for cycling windows in the current app
+  - `Alt+Tab` opens a grid of individual windows from all apps, with thumbnails and app icons; `Alt+Shift+Tab` cycles backwards
+  - `Command+Backtick`, `Ctrl+Backtick`, or `Alt+Backtick` opens a thumbnail switcher for windows in the current app
   - `Ctrl+V`, `Ctrl+C`, `Ctrl+T`, `Ctrl+W`, and similar Windows muscle-memory shortcuts are translated to Mac `Command` shortcuts
   - `Ctrl+Enter` is translated to `Command+Enter` for sending/submitting in apps that support it
   - `Ctrl+left-click` is translated to `Command+left-click` for opening links in Chrome-style browsers
   - `Ctrl+Delete` is translated to `Option+Delete` for deleting one word at a time
   - `Ctrl+Tab` and `Ctrl+Shift+Tab` are left alone for browser tab cycling
-  - `Ctrl+Left/Right/Up/Down` or `Fn/Globe+Left/Right/Up/Down` snaps the focused window like Windows
+  - `Command+Arrow`, `Ctrl+Arrow`, or `Ctrl+Option+Arrow` snaps the focused window
   - Repeating `Ctrl+Left/Right` from a side snap throws the window to the neighboring monitor
-  - `Ctrl+Shift+Left/Right` or `Fn/Globe+Shift+Left/Right` moves the focused window to the physically neighboring display
+  - Add `Shift+Left/Right` to any window binding to move directly to the neighboring display, preserving half/quarter placement
+  - Window state and restore size are remembered per window; rapid taps are processed in order
+  - Optional typing mode restores Ctrl+Arrow word navigation and selection
 - Center click closes browser tabs, opens links or Gmail inbox messages in a new tab, and toggles Windows-style auto-scroll elsewhere
 - Adjustable screenshot chord timing window (20-200 ms)
 - Menu bar status and a full Settings window for behavior + permissions
@@ -67,34 +68,70 @@ If the app is not listed in a macOS privacy pane, use the `+` button and add `Vi
 
 ## Usage
 
-Default actions:
+Alt is the Mac **Option (⌥)** key. Mac **Delete** is the backward-delete/Backspace key; an external keyboard's **Delete** usually deletes forward.
 
-- `Caps Lock` or `Left + Right mouse chord`: start interactive screenshot capture
-- `Ctrl+Shift+C`: copy the selected name or other text and immediately search it in a new default-browser tab
-- `Ctrl+Option+V`: search the copied name or other text in a new default-browser tab
-- `Alt+Space`: open Spotlight with Command+Space behavior
-- `Alt+Tab`: cycle apps with Command+Tab app-switcher behavior
-- `Alt+Backtick` / `Alt+~`: cycle windows in the current app
-- `Ctrl+V`: paste the clipboard with Windows muscle memory
-- `Ctrl+Enter`: send or submit in apps that use Command+Enter
-- `Ctrl+left-click`: open links with Command-click behavior
-- `Ctrl+Delete`: delete the previous word
-- `Ctrl+Tab`: cycle browser tabs
-- `Ctrl+Left/Right`: snap the focused window to the left or right half
-- `Fn/Globe+Left/Right`: snap the focused window to the left or right half on laptop keyboards
-- `Ctrl+Left/Right`, repeated from a side snap: move to the neighboring monitor
-- `Fn/Globe+Left/Right`, repeated from a side snap: move to the neighboring monitor
-- `Ctrl+Up` or `Fn/Globe+Up`: maximize the focused window, or snap a side-snapped window to the top quarter
-- `Ctrl+Down` or `Fn/Globe+Down`: restore from maximize, or snap a side-snapped window to the bottom quarter
-- `Ctrl+Shift+Left/Right`: move the focused window across monitors
-- `Fn/Globe+Shift+Left/Right`: move the focused window across monitors on laptop keyboards
-- `Center click` over a browser tab: close that tab
-- `Center click` over a link or Gmail inbox message: open it in a new browser tab
-- `Center click` elsewhere: toggle auto-scroll; farther from the anchor scrolls faster
+The full guide is also available in **Settings → Shortcut guide**.
 
-All shortcuts can be enabled/disabled in **Settings -> Behavior**.
+| Keys | Action |
+| --- | --- |
+| Command+Arrow, Ctrl+Arrow, or Ctrl+Option+Arrow | Window controls described below |
+| Ctrl+Shift+C | Copy selected text and search Google in your default browser |
+| Ctrl+C / X / V / A | Copy / cut / paste / select all |
+| Ctrl+Z / Y / Shift+Z | Undo / redo / redo |
+| Ctrl+T / W / Shift+T | New tab / close tab / reopen closed tab in browsers |
+| Ctrl+Tab / Ctrl+Shift+Tab | Next / previous browser tab |
+| Ctrl+L / F / S / P | Address bar / find / save / print |
+| Ctrl+N / O / R | New / open / reload, where supported |
+| Ctrl+B / I / U / K | Bold / italic / underline / link, where supported |
+| Ctrl+D | App's Command+D action, e.g. bookmark in Chrome |
+| Ctrl+1…9 / 0 / minus / equals | App's Command equivalent: tab selection or zoom, depending on the app |
+| Ctrl+Enter | Send/submit in apps supporting Command+Enter |
+| Ctrl+Backspace / Ctrl+forward Delete | Delete previous / next word |
+| Ctrl+Home / End | Document start / end; add Shift to select |
+| Alt+Tab / Alt+Shift+Tab | Preview individual windows from all apps; cycle forward / backwards; release Alt to choose |
+| Command+backtick / Ctrl+backtick / Alt+backtick | Preview windows in the current app; release the modifier to choose |
+| Add Shift while cycling windows | Cycle backwards; Escape cancels, Enter chooses |
+| Alt+Space | Spotlight |
+| Caps Lock (optional) / left+right mouse chord | Select a screenshot area; copy it to the clipboard |
+| Ctrl+left-click | Command-click behavior, including opening browser links in new tabs |
+| Middle click on a tab / link / Gmail row | Close tab / open new tab / open message in new tab |
+| Middle click elsewhere | Start auto-scroll; distance from the anchor controls speed |
+| Escape / middle click / left click | Stop auto-scroll |
+
+### Window previews
+
+Hold **Command**, **Ctrl**, or **Alt** and tap the **backtick/tilde key** (\` / ~) to preview the current app's windows, including Chrome windows. Keep tapping to cycle; add **Shift** to go backwards. Release the modifier to focus the selected window. While the preview is open, **Left/Right** also changes selection, **Enter** chooses, and **Escape** cancels. A quick tap switches immediately without waiting for thumbnails. Ctrl+Tab still cycles browser tabs.
+
+The switcher includes minimized windows and restores one when selected. Thumbnails require **Screen Recording** permission and macOS 14 or later; without them, window titles and app icons remain usable. Previews stay in memory and are discarded when the switcher closes.
+
+**Alt+Tab** opens an **all-windows grid** with a separate thumbnail, title, and app icon for each window. Keep **Alt** held and tap **Tab** to continue cycling; add **Shift** to cycle backwards. **Left/Right** moves between windows, **Up/Down** moves between rows, **Enter** chooses, and **Escape** cancels. Release **Alt** to activate the selected window's app and bring that specific window forward. The grid includes minimized windows and scrolls to keep the selection visible. **Command+Tab** still uses the native macOS app switcher.
+
+### Window keys
+
+Plain arrows stay with the focused app for cursor movement or scrolling. Shift+arrows select text. Use **Command (⌘)+Arrow** on the MacBook keyboard to control windows. Fn/Globe+Arrow keeps its normal navigation behavior.
+
+Use any of the window modifier combinations above, then:
+
+- **Left/Right:** snap to that half. Repeat toward its outside edge to move to the opposite half of the next monitor. Another press advances to that monitor's other half. At the last monitor, stay put.
+- **Up:** half → top quarter → maximize. A bottom quarter moves to the top of the same column.
+- **Down:** top quarter → half → bottom quarter → restore. From maximize, restore the window's saved size and position.
+- **Shift+Left/Right:** move straight to the neighboring display. A half, quarter, or maximized window fits the new display; a floating window preserves its size and relative placement where space allows.
+- Quarter-window horizontal moves preserve the top/bottom row.
+- Each tap performs one step. Holding an arrow does not throw repeatedly.
+- Manual movement/resizing starts a new placement history. Full-screen Spaces are left alone; exit full screen before tiling.
+- Apps with a minimum window size may occupy more than a half/quarter; the app aligns the accepted size and reports this in Last action.
+
+**Typing option:** turn off **Settings → Behavior → Use Ctrl+Arrow for windows** to use Ctrl+Left/Right for word movement and Ctrl+Shift+Left/Right for word selection. Ctrl+Up/Down moves to document start/end (Shift selects). Ctrl+Option+Arrow and Command+Arrow continue to control windows. The existing Ctrl+Arrow window binding remains on by default.
+
+**Settings:** the master switch controls all remaps. Copy & Search and Caps Lock capture have separate switches; turning off Copy & Search leaves ordinary Ctrl-to-Command translation active. These are global Mac Command mappings, so terminal Ctrl+C/Ctrl+Z behavior is also affected while enabled.
 
 ## Build and Run from Source
+
+Run the geometry and keyboard lifecycle regression tests with:
+
+```bash
+swift test --disable-sandbox --scratch-path .build/scratch
+```
 
 ```bash
 ./scripts/dev-run.sh

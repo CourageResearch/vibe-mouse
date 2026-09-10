@@ -43,8 +43,8 @@ struct AboutView: View {
         ) {
             VStack(alignment: .leading, spacing: 12) {
                 WorkflowRow(step: "1", text: "Left+Right or Caps Lock starts an interactive screenshot and copies the result to the clipboard.")
-                WorkflowRow(step: "2", text: "Ctrl+Shift+C copies selected text and searches it in a new browser tab; Ctrl+Option+V searches existing clipboard text; Alt+Space opens Spotlight; Alt+Tab cycles apps; Alt+` cycles windows.")
-                WorkflowRow(step: "3", text: "Fn/Globe+Arrow or Ctrl+Arrow snaps the focused window; add Shift+Left/Right to move monitors.")
+                WorkflowRow(step: "2", text: "Ctrl+Shift+C copies selected text and searches it in a new browser tab; Alt+Space opens Spotlight; Alt+Tab previews all windows; Alt+` previews this app's windows.")
+                WorkflowRow(step: "3", text: "Command+Arrow, Ctrl+Arrow, or Ctrl+Option+Arrow snaps the focused window; add Shift+Left/Right to move monitors. Down restores your previous size after maximize.")
                 WorkflowRow(step: "4", text: "Center click closes browser tabs, opens links or Gmail messages in a new tab, and toggles auto-scroll elsewhere.")
             }
         }

@@ -83,6 +83,7 @@ final class WindowsAutoScrollService {
                 return
             }
 
+            event.setIntegerValueField(.eventSourceUserData, value: InputEventMarker.synthetic)
             event.post(tap: .cghidEventTap)
         }
     }

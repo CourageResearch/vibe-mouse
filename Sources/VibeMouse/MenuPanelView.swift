@@ -25,9 +25,9 @@ struct MenuPanelView: View {
 
                 HStack(spacing: 10) {
                     VStack(alignment: .leading, spacing: 3) {
-                        Text("Enable mouse shortcuts")
+                        Text("Enable shortcuts")
                             .font(.subheadline.weight(.semibold))
-                        Text(model.isEnabled ? listeningSummaryText : "Global mouse shortcuts are disabled.")
+                        Text(model.isEnabled ? listeningSummaryText : "Keyboard and mouse shortcuts are disabled.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
@@ -85,14 +85,14 @@ struct MenuPanelView: View {
 
     private var shortcutSummaryText: String {
         let searchSegment = model.searchClipboardEnabled ? ", Ctrl+Shift+C search" : ""
-        return "\(screenshotKeyboardCompactSummaryGesture) screenshot\(searchSegment), Ctrl-click links, Fn/Globe arrows"
+        return "\(screenshotKeyboardCompactSummaryGesture) screenshot\(searchSegment), Ctrl-click links, Command arrows"
     }
 
     private var listeningSummaryText: String {
         let searchSegment = model.searchClipboardEnabled
-            ? "Ctrl+Shift+C copy-and-search, Ctrl+Option+V clipboard search, "
+            ? "Ctrl+Shift+C copy-and-search, "
             : ""
-        return "Listening for \(screenshotListeningGesture) screenshot triggers, \(searchSegment)Alt+Space Spotlight, Alt+Tab app switching, Alt+` window cycling, palm Ctrl shortcuts, Ctrl-click links, Ctrl+Delete word-delete, Ctrl+Arrow or Fn/Globe+Arrow window tiling, and center-click tab closing, link or Gmail message opening, or auto-scroll."
+        return "\(model.windowShortcutLabel) for windows. \(searchSegment)Windows-style Ctrl keys and middle-click actions. Open Settings for the full shortcut guide."
     }
 
     private var screenshotKeyboardSummaryGesture: String {

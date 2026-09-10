@@ -38,6 +38,20 @@ final class AppModel: ObservableObject {
         }
     }
 
+    @Published var controlArrowWindowShortcutsEnabled: Bool {
+        didSet {
+            defaults.set(controlArrowWindowShortcutsEnabled, forKey: Self.controlArrowWindowShortcutsKey)
+            monitor.controlArrowWindowShortcutsEnabled = controlArrowWindowShortcutsEnabled
+            applyMonitorState()
+        }
+    }
+
+    var windowShortcutLabel: String {
+        controlArrowWindowShortcutsEnabled
+            ? "Command+Arrow, Ctrl+Arrow, or Ctrl+Option+Arrow"
+            : "Command+Arrow or Ctrl+Option+Arrow"
+    }
+
     @Published var reverseScrollingEnabled: Bool {
         didSet {
             defaults.set(reverseScrollingEnabled, forKey: Self.reverseScrollingEnabledKey)
@@ -125,6 +139,7 @@ final class AppModel: ObservableObject {
     private static let chordWindowKey = "mouseChordShot.chordWindowMs"
     private static let capsLockScreenshotEnabledKey = "mouseChordShot.screenshot.capsLockEnabled"
     private static let searchClipboardEnabledKey = "mouseChordShot.searchClipboard.enabled"
+    private static let controlArrowWindowShortcutsKey = "mouseChordShot.windows.controlArrows"
     private static let reverseScrollingEnabledKey = "mouseChordShot.scroll.reverseEnabled"
     private static let mouseScrollSpeedKey = "mouseChordShot.scroll.mouseSpeed"
     private static let scrollEventLoggingEnabledKey = "mouseChordShot.scroll.debugLogEnabled"
@@ -143,6 +158,7 @@ final class AppModel: ObservableObject {
     private let screenshotService: ScreenshotService
     private let windowsAutoScrollService: WindowsAutoScrollService
     private let windowTilerService: WindowTilerService
+    private let windowSwitcherService = WindowSwitcherService()
     private var activationObserver: NSObjectProtocol?
     private var terminationObserver: NSObjectProtocol?
     private var copyAndSearchTask: Task<Void, Never>?
@@ -168,6 +184,9 @@ final class AppModel: ObservableObject {
         self.searchClipboardEnabled = defaults.object(
             forKey: Self.searchClipboardEnabledKey
         ) as? Bool ?? true
+        self.controlArrowWindowShortcutsEnabled = defaults.object(
+            forKey: Self.controlArrowWindowShortcutsKey
+        ) as? Bool ?? true
         self.reverseScrollingEnabled = defaults.object(
             forKey: Self.reverseScrollingEnabledKey
         ) as? Bool ?? false
@@ -181,6 +200,7 @@ final class AppModel: ObservableObject {
         self.monitor.chordWindowSeconds = max(0.02, self.chordWindowMs / 1_000.0)
         self.monitor.reverseScrollingEnabled = self.reverseScrollingEnabled
         self.monitor.mouseScrollSpeed = self.mouseScrollSpeed
+        self.monitor.controlArrowWindowShortcutsEnabled = self.controlArrowWindowShortcutsEnabled
         self.monitor.onChord = { [weak self] in
             self?.handleChordTriggered()
         }
@@ -189,6 +209,16 @@ final class AppModel: ObservableObject {
         }
         self.monitor.onWindowArrowShortcut = { [weak self] shortcut in
             self?.handleWindowArrowShortcut(shortcut)
+        }
+        self.monitor.onWindowSwitchAction = { [weak self] action in
+            self?.windowsAutoScrollService.stop()
+            self?.windowSwitcherService.handle(action)
+        }
+        self.windowSwitcherService.onDismiss = { [weak self] in
+            self?.monitor.dismissWindowSwitcher()
+        }
+        self.windowSwitcherService.onStatus = { [weak self] message in
+            self?.lastActionMessage = message
         }
         self.monitor.shouldSuppressPrimaryClick = { [weak self] in
             MainActor.assumeIsolated {
@@ -224,6 +254,7 @@ final class AppModel: ObservableObject {
         ) { [weak self] _ in
             Task { @MainActor [weak self] in
                 self?.copyAndSearchTask?.cancel()
+                self?.windowTilerService.cancelPendingCommands()
                 self?.windowsAutoScrollService.stop()
                 self?.monitor.stop()
             }
@@ -371,6 +402,8 @@ final class AppModel: ObservableObject {
 
     private func applyMonitorState() {
         guard isEnabled else {
+            copyAndSearchTask?.cancel()
+            windowTilerService.cancelPendingCommands()
             monitor.stop()
             windowsAutoScrollService.stop()
             monitorRunning = false
@@ -379,6 +412,7 @@ final class AppModel: ObservableObject {
         }
 
         if screenshotCaptureInProgress {
+            windowTilerService.cancelPendingCommands()
             monitor.stop()
             windowsAutoScrollService.stop()
             monitorRunning = false
@@ -408,18 +442,6 @@ final class AppModel: ObservableObject {
     private func handleKeyboardCaptureTriggered() {
         guard isEnabled else { return }
         runScreenshot()
-    }
-
-    private func handleSearchClipboardTriggered() {
-        guard isEnabled else { return }
-
-        let pasteboard = NSPasteboard.general
-        guard let clipboardText = pasteboard.string(forType: .string) else {
-            lastActionMessage = "Copy a name or other text before using Search Clipboard."
-            return
-        }
-
-        searchCopiedText(clipboardText)
     }
 
     private func handleCopyAndSearchTriggered(previousPasteboardChangeCount: Int) {
@@ -456,7 +478,7 @@ final class AppModel: ObservableObject {
             .split(whereSeparator: { $0.isWhitespace })
             .joined(separator: " ")
         guard !searchText.isEmpty else {
-            lastActionMessage = "Copy a name or other text before using Search Clipboard."
+            lastActionMessage = "Select a name or other text and press Ctrl+Shift+C to search."
             return
         }
 
@@ -501,14 +523,15 @@ final class AppModel: ObservableObject {
             .moveDisplayRight
         }
 
-        switch windowTilerService.perform(command) {
-        case .success(let message):
-            lastActionMessage = message
-        case .failure(let error):
-            lastActionMessage = windowTilerFailureMessage(error)
+        windowTilerService.perform(command) { [weak self] result in
+            guard let self else { return }
+            switch result {
+            case .success(let message):
+                lastActionMessage = message
+            case .failure(let error):
+                lastActionMessage = windowTilerFailureMessage(error)
+            }
         }
-
-        applyMonitorState()
     }
 
     private func handleSideButtonDown(_ buttonNumber: Int64) {
@@ -607,9 +630,6 @@ final class AppModel: ObservableObject {
         monitor.disableCapsLockLockingWhileIntercepting = capsLockScreenshotEnabled
 
         if searchClipboardEnabled {
-            monitor.onSearchClipboardShortcut = { [weak self] in
-                self?.handleSearchClipboardTriggered()
-            }
             monitor.onCopyAndSearchShortcut = { [weak self] previousPasteboardChangeCount in
                 self?.handleCopyAndSearchTriggered(
                     previousPasteboardChangeCount: previousPasteboardChangeCount
@@ -617,7 +637,6 @@ final class AppModel: ObservableObject {
             }
         } else {
             copyAndSearchTask?.cancel()
-            monitor.onSearchClipboardShortcut = nil
             monitor.onCopyAndSearchShortcut = nil
         }
 
@@ -690,10 +709,10 @@ final class AppModel: ObservableObject {
     private func monitorListeningStatusDescription() -> String {
         let screenshotSegment = "screenshot (\(screenshotTriggerLabel), clipboard-only)"
         let searchClipboardSegment = searchClipboardEnabled
-            ? ", Ctrl+Shift+C copy-and-search and Ctrl+Option+V clipboard search"
+            ? ", Ctrl+Shift+C copy-and-search"
             : ""
-        let keyboardSegment = "Alt+Space Spotlight, Alt+Tab app switching, Alt+` window cycling, palm Ctrl shortcuts, Ctrl-click links, and Ctrl+Delete word-delete\(searchClipboardSegment)"
-        let windowSegment = "Ctrl+Arrow or Fn/Globe+Arrow window tiling"
+        let keyboardSegment = "Alt+Space Spotlight, Alt+Tab all-window previews, Alt+` same-app window previews, palm Ctrl shortcuts, Ctrl-click links, and Ctrl+Delete word-delete\(searchClipboardSegment)"
+        let windowSegment = "\(windowShortcutLabel) window tiling"
         let autoScrollSegment = "center-click tab closing, link or Gmail message opening, or auto-scroll"
         let scrollSegment = reverseScrollingEnabled ? ", reversed scrolling" : ""
         let debugSegment = scrollEventLoggingEnabled ? ", scroll debug logging" : ""

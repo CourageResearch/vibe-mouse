@@ -1,413 +1,234 @@
 import AppKit
 import ApplicationServices
 
+struct WindowTarget {
+    let window: AXUIElement
+    let processIdentifier: pid_t
+}
+
+@MainActor
+protocol WindowAccess {
+    func focusedTarget() -> WindowTarget?
+    func frame(of window: AXUIElement) -> CGRect?
+    func isFullScreen(_ window: AXUIElement) -> Bool
+    func setPosition(_ position: CGPoint, on window: AXUIElement) -> AXError
+    func setSize(_ size: CGSize, on window: AXUIElement) -> AXError
+    func displayAreas() -> [WindowDisplay]
+}
+
 @MainActor
 final class WindowTilerService {
-    enum Command {
-        case snapLeft
-        case snapRight
-        case snapUp
-        case snapDown
-        case moveDisplayLeft
-        case moveDisplayRight
-    }
+    typealias Command = WindowCommand
 
     enum TilingError: Error {
-        case noFocusedApplication
-        case noFocusedWindow
-        case unsupportedWindow
+        case noFocusedApplication, noFocusedWindow, unsupportedWindow
         case cannotMoveWindow(String)
     }
 
-    private struct LastHorizontalSnap {
-        let direction: CGFloat
+    private struct WindowState {
+        let window: AXUIElement
         let processIdentifier: pid_t
-        let timestamp: TimeInterval
+        let layout: WindowLayout?
+        let appliedFrame: CGRect
+        let restoreFrame: CGRect
+        let display: WindowDisplay
     }
 
-    private struct DisplayArea {
-        let screen: NSScreen
-        let frame: CGRect
-        let visibleFrame: CGRect
+    private struct Request {
+        let command: Command
+        let window: AXUIElement
+        let processIdentifier: pid_t
+        let completion: @MainActor (Result<String, TilingError>) -> Void
     }
 
-    private static let repeatedHorizontalShortcutWindowSeconds: TimeInterval = 2.25
+    private var states: [WindowState] = []
+    private var requests: [Request] = []
+    private var worker: Task<Void, Never>?
+    private let access: any WindowAccess
 
-    private var lastHorizontalSnap: LastHorizontalSnap?
-
-    func perform(_ command: Command) -> Result<String, TilingError> {
-        guard let application = NSWorkspace.shared.frontmostApplication else {
-            return .failure(.noFocusedApplication)
-        }
-
-        guard let window = focusedWindow(for: application) else {
-            return .failure(.noFocusedWindow)
-        }
-
-        guard let currentFrame = frame(of: window) else {
-            return .failure(.unsupportedWindow)
-        }
-
-        let screens = NSScreen.screens
-        guard !screens.isEmpty else {
-            return .failure(.cannotMoveWindow("No screens found."))
-        }
-
-        let displays = displayAreas(for: screens)
-        let currentDisplay = display(containing: currentFrame, displays: displays)
-        let targetFrame: CGRect?
-        let description: String
-
-        switch command {
-        case .snapLeft:
-            let currentLeft = leftHalf(of: currentDisplay.visibleFrame)
-            if shouldMoveHorizontallyAcrossDisplays(
-                currentFrame: currentFrame,
-                currentDisplay: currentDisplay,
-                direction: -1,
-                processIdentifier: application.processIdentifier
-            ),
-               let nextDisplay = adjacentDisplay(from: currentDisplay, direction: -1, displays: displays) {
-                targetFrame = rightHalf(of: nextDisplay.visibleFrame)
-                description = "Window moved to the right side of the left display."
-            } else {
-                targetFrame = currentLeft
-                description = "Window snapped left."
-            }
-
-        case .snapRight:
-            let currentRight = rightHalf(of: currentDisplay.visibleFrame)
-            if shouldMoveHorizontallyAcrossDisplays(
-                currentFrame: currentFrame,
-                currentDisplay: currentDisplay,
-                direction: 1,
-                processIdentifier: application.processIdentifier
-            ),
-               let nextDisplay = adjacentDisplay(from: currentDisplay, direction: 1, displays: displays) {
-                targetFrame = leftHalf(of: nextDisplay.visibleFrame)
-                description = "Window moved to the left side of the right display."
-            } else {
-                targetFrame = currentRight
-                description = "Window snapped right."
-            }
-
-        case .snapUp:
-            if isClose(currentFrame, to: leftHalf(of: currentDisplay.visibleFrame)) {
-                targetFrame = topLeftQuarter(of: currentDisplay.visibleFrame)
-                description = "Window snapped top-left."
-            } else if isClose(currentFrame, to: rightHalf(of: currentDisplay.visibleFrame)) {
-                targetFrame = topRightQuarter(of: currentDisplay.visibleFrame)
-                description = "Window snapped top-right."
-            } else {
-                targetFrame = currentDisplay.visibleFrame
-                description = "Window maximized."
-            }
-
-        case .snapDown:
-            if isClose(currentFrame, to: leftHalf(of: currentDisplay.visibleFrame))
-                || isClose(currentFrame, to: topLeftQuarter(of: currentDisplay.visibleFrame)) {
-                targetFrame = bottomLeftQuarter(of: currentDisplay.visibleFrame)
-                description = "Window snapped bottom-left."
-            } else if isClose(currentFrame, to: rightHalf(of: currentDisplay.visibleFrame))
-                        || isClose(currentFrame, to: topRightQuarter(of: currentDisplay.visibleFrame)) {
-                targetFrame = bottomRightQuarter(of: currentDisplay.visibleFrame)
-                description = "Window snapped bottom-right."
-            } else if isClose(currentFrame, to: currentDisplay.visibleFrame) {
-                targetFrame = centeredRestoreFrame(in: currentDisplay.visibleFrame)
-                description = "Window restored to center."
-            } else {
-                targetFrame = bottomHalf(of: currentDisplay.visibleFrame)
-                description = "Window snapped bottom."
-            }
-
-        case .moveDisplayLeft:
-            guard let nextDisplay = adjacentDisplay(from: currentDisplay, direction: -1, displays: displays) else {
-                return .failure(.cannotMoveWindow("No display to the left."))
-            }
-            targetFrame = move(currentFrame, from: currentDisplay.visibleFrame, to: nextDisplay.visibleFrame)
-            description = "Window moved to the left display."
-
-        case .moveDisplayRight:
-            guard let nextDisplay = adjacentDisplay(from: currentDisplay, direction: 1, displays: displays) else {
-                return .failure(.cannotMoveWindow("No display to the right."))
-            }
-            targetFrame = move(currentFrame, from: currentDisplay.visibleFrame, to: nextDisplay.visibleFrame)
-            description = "Window moved to the right display."
-        }
-
-        guard let targetFrame else {
-            return .failure(.cannotMoveWindow("No target frame found."))
-        }
-
-        if let failureMessage = setFrame(targetFrame.integral, for: window) {
-            return .failure(.cannotMoveWindow(failureMessage))
-        } else {
-            rememberHorizontalSnapIfNeeded(command: command, processIdentifier: application.processIdentifier)
-            return .success(description)
-        }
+    init(access: any WindowAccess = MacWindowAccess()) {
+        self.access = access
     }
 
-    private func shouldMoveHorizontallyAcrossDisplays(
-        currentFrame: CGRect,
-        currentDisplay: DisplayArea,
-        direction: CGFloat,
-        processIdentifier: pid_t
-    ) -> Bool {
-        let snappedFrame = direction < 0
-            ? leftHalf(of: currentDisplay.visibleFrame)
-            : rightHalf(of: currentDisplay.visibleFrame)
-
-        if isClose(currentFrame, to: snappedFrame)
-            || isOnHorizontalSide(currentFrame, of: currentDisplay.visibleFrame, direction: direction) {
-            return true
-        }
-
-        guard let lastHorizontalSnap,
-              lastHorizontalSnap.processIdentifier == processIdentifier,
-              lastHorizontalSnap.direction == direction else {
-            return false
-        }
-
-        return ProcessInfo.processInfo.systemUptime - lastHorizontalSnap.timestamp
-            <= Self.repeatedHorizontalShortcutWindowSeconds
+    func cancelPendingCommands() {
+        requests.removeAll()
+        worker?.cancel()
+        worker = nil
     }
 
-    private func rememberHorizontalSnapIfNeeded(command: Command, processIdentifier: pid_t) {
-        let direction: CGFloat?
-        switch command {
-        case .snapLeft, .moveDisplayLeft:
-            direction = -1
-        case .snapRight, .moveDisplayRight:
-            direction = 1
-        case .snapUp, .snapDown:
-            direction = nil
-        }
-
-        guard let direction else {
-            lastHorizontalSnap = nil
+    func perform(_ command: Command, completion: @escaping @MainActor (Result<String, TilingError>) -> Void) {
+        guard let target = access.focusedTarget() else {
+            completion(.failure(.noFocusedWindow))
             return
         }
 
-        lastHorizontalSnap = LastHorizontalSnap(
-            direction: direction,
-            processIdentifier: processIdentifier,
-            timestamp: ProcessInfo.processInfo.systemUptime
-        )
+        // Capture the window when the key is pressed, then serialize work. Fast taps
+        // see the previous accepted result and never borrow state from another window.
+        requests.append(Request(command: command, window: target.window,
+                                processIdentifier: target.processIdentifier, completion: completion))
+        guard worker == nil else { return }
+        worker = Task { @MainActor [weak self] in
+            guard let self else { return }
+            while !requests.isEmpty, !Task.isCancelled {
+                let request = requests.removeFirst()
+                let result = await apply(request)
+                guard !Task.isCancelled else { return }
+                request.completion(result)
+            }
+            worker = nil
+        }
     }
 
-    private func focusedWindow(for application: NSRunningApplication) -> AXUIElement? {
-        let appElement = AXUIElementCreateApplication(application.processIdentifier)
-        if let focusedWindow = copyElement(appElement, attribute: kAXFocusedWindowAttribute) {
-            return focusedWindow
+    private func apply(_ request: Request) async -> Result<String, TilingError> {
+        let window = request.window
+        guard let currentFrame = access.frame(of: window), !access.isFullScreen(window) else {
+            return .failure(.unsupportedWindow)
         }
-        return copyElement(appElement, attribute: kAXMainWindowAttribute)
+        let displays = access.displayAreas()
+        guard let display = WindowGeometry.display(containing: currentFrame, in: displays) else {
+            return .failure(.cannotMoveWindow("No screens found."))
+        }
+        let previous = states.first {
+            $0.processIdentifier == request.processIdentifier && CFEqual($0.window, window)
+        }
+        // Remember the actual accepted frame, including minimum-size constraints.
+        // A manual drag/resize invalidates layout memory and becomes the new restore size.
+        let unchanged = previous.map {
+            $0.display.id == display.id && $0.display.visibleFrame == display.visibleFrame
+                && WindowGeometry.isClose(currentFrame, to: $0.appliedFrame)
+        } ?? false
+        let layout = unchanged ? previous?.layout : WindowLayout.matching(currentFrame, in: display.visibleFrame)
+        var restoreFrame = unchanged ? previous!.restoreFrame : currentFrame
+        guard let placement = WindowGeometry.plan(
+            request.command, currentFrame: currentFrame, layout: layout, display: display,
+            displays: displays, restoreFrame: unchanged ? restoreFrame : nil
+        ) else {
+            return .failure(.cannotMoveWindow("No display in that direction."))
+        }
+        if display.id != placement.display.id {
+            restoreFrame = WindowGeometry.moved(restoreFrame, from: display.visibleFrame,
+                                               to: placement.display.visibleFrame)
+        }
+
+        let result = await setFrame(placement, for: window)
+        guard !Task.isCancelled else { return .failure(.cannotMoveWindow("Window movement canceled.")) }
+        switch result {
+        case .failure(let error):
+            states.removeAll { CFEqual($0.window, window) }
+            return .failure(error)
+        case .success(let appliedFrame):
+            states.removeAll { CFEqual($0.window, window) }
+            states.append(WindowState(window: window, processIdentifier: request.processIdentifier,
+                layout: placement.layout, appliedFrame: appliedFrame,
+                restoreFrame: placement.layout == nil ? appliedFrame : restoreFrame, display: placement.display))
+            if states.count > 64 { states.removeFirst(states.count - 64) }
+            let constrained = !WindowGeometry.isClose(appliedFrame, to: placement.frame)
+            return .success(placement.message + (constrained ? " App minimum size kept." : ""))
+        }
     }
 
-    private func frame(of window: AXUIElement) -> CGRect? {
-        guard let position = copyCGPoint(window, attribute: kAXPositionAttribute),
-              let size = copyCGSize(window, attribute: kAXSizeAttribute),
-              size.width > 1,
-              size.height > 1 else {
-            return nil
+    private func setFrame(_ placement: WindowPlacement, for window: AXUIElement) async -> Result<CGRect, TilingError> {
+        // Small -> large displays can reject enlargement until after the move;
+        // large -> small displays can clamp the move until after the shrink.
+        // Resize/move, then resize/align again on the destination, with bounded readback.
+        for _ in 0..<2 {
+            guard !Task.isCancelled else { break }
+            guard access.setSize(placement.frame.size, on: window) == .success,
+                  access.setPosition(placement.frame.origin, on: window) == .success else {
+                return .failure(.cannotMoveWindow("Window refused move or resize."))
+            }
+            try? await Task.sleep(for: .milliseconds(35))
+            guard !Task.isCancelled else { break }
+            guard access.setSize(placement.frame.size, on: window) == .success else {
+                return .failure(.cannotMoveWindow("Window refused resize on the target display."))
+            }
+            guard let resized = access.frame(of: window) else { return .failure(.unsupportedWindow) }
+            let origin = WindowGeometry.alignedOrigin(size: resized.size, placement: placement)
+            guard access.setPosition(origin, on: window) == .success else {
+                return .failure(.cannotMoveWindow("Window refused edge alignment."))
+            }
+            try? await Task.sleep(for: .milliseconds(35))
+            guard !Task.isCancelled else { break }
+            if let actual = access.frame(of: window) {
+                let expected = CGRect(origin: WindowGeometry.alignedOrigin(size: actual.size, placement: placement),
+                                      size: actual.size)
+                let sizeAccepted = actual.width >= placement.frame.width - 3
+                    && actual.height >= placement.frame.height - 3
+                if sizeAccepted, WindowGeometry.isClose(actual, to: expected) {
+                    return .success(actual)
+                }
+            }
         }
+        return .failure(.cannotMoveWindow("Window did not settle at the requested position. Try again."))
+    }
+}
+
+@MainActor
+private final class MacWindowAccess: WindowAccess {
+    func focusedTarget() -> WindowTarget? {
+        guard let application = NSWorkspace.shared.frontmostApplication else { return nil }
+        let app = AXUIElementCreateApplication(application.processIdentifier)
+        AXUIElementSetMessagingTimeout(app, 0.2)
+        guard let window = copyElement(app, attribute: kAXFocusedWindowAttribute)
+                ?? copyElement(app, attribute: kAXMainWindowAttribute) else { return nil }
+        AXUIElementSetMessagingTimeout(window, 0.2)
+        return WindowTarget(window: window, processIdentifier: application.processIdentifier)
+    }
+
+    func setPosition(_ position: CGPoint, on window: AXUIElement) -> AXError {
+        var position = position
+        guard let value = AXValueCreate(.cgPoint, &position) else { return .failure }
+        return AXUIElementSetAttributeValue(window, kAXPositionAttribute as CFString, value)
+    }
+
+    func setSize(_ size: CGSize, on window: AXUIElement) -> AXError {
+        var size = size
+        guard let value = AXValueCreate(.cgSize, &size) else { return .failure }
+        return AXUIElementSetAttributeValue(window, kAXSizeAttribute as CFString, value)
+    }
+
+    func frame(of window: AXUIElement) -> CGRect? {
+        guard let positionValue = copyValue(window, attribute: kAXPositionAttribute),
+              let sizeValue = copyValue(window, attribute: kAXSizeAttribute) else { return nil }
+        var position = CGPoint.zero
+        var size = CGSize.zero
+        guard AXValueGetValue(positionValue, .cgPoint, &position),
+              AXValueGetValue(sizeValue, .cgSize, &size),
+              size.width > 1, size.height > 1 else { return nil }
         return CGRect(origin: position, size: size)
     }
 
-    private func setFrame(_ frame: CGRect, for window: AXUIElement) -> String? {
-        var position = frame.origin
-        var size = frame.size
-        guard let positionValue = AXValueCreate(.cgPoint, &position),
-              let sizeValue = AXValueCreate(.cgSize, &size) else {
-            return "Could not create window frame values."
-        }
-
-        let positionResult = AXUIElementSetAttributeValue(window, kAXPositionAttribute as CFString, positionValue)
-        let sizeResult = AXUIElementSetAttributeValue(window, kAXSizeAttribute as CFString, sizeValue)
-
-        guard positionResult == .success, sizeResult == .success else {
-            return "Window refused move or resize. position=\(positionResult.rawValue) size=\(sizeResult.rawValue)"
-        }
-        return nil
-    }
-
     private func copyElement(_ element: AXUIElement, attribute: String) -> AXUIElement? {
-        var value: AnyObject?
-        let result = AXUIElementCopyAttributeValue(element, attribute as CFString, &value)
-        guard result == .success, let value else { return nil }
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, attribute as CFString, &value) == .success,
+              let value, CFGetTypeID(value) == AXUIElementGetTypeID() else { return nil }
         return (value as! AXUIElement)
     }
 
-    private func copyCGPoint(_ element: AXUIElement, attribute: String) -> CGPoint? {
-        var value: AnyObject?
-        let result = AXUIElementCopyAttributeValue(element, attribute as CFString, &value)
-        guard result == .success,
-              let value,
-              CFGetTypeID(value) == AXValueGetTypeID() else {
-            return nil
+    private func copyValue(_ element: AXUIElement, attribute: String) -> AXValue? {
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, attribute as CFString, &value) == .success,
+              let value, CFGetTypeID(value) == AXValueGetTypeID() else { return nil }
+        return (value as! AXValue)
+    }
+
+    func isFullScreen(_ window: AXUIElement) -> Bool {
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(window, "AXFullScreen" as CFString, &value) == .success else { return false }
+        return (value as? NSNumber)?.boolValue ?? false
+    }
+
+    func displayAreas() -> [WindowDisplay] {
+        let screens = NSScreen.screens
+        let anchor = screens.first(where: { $0.frame.origin == .zero })?.frame.maxY
+            ?? screens.first?.frame.maxY ?? 0
+        func convert(_ rect: CGRect) -> CGRect {
+            CGRect(x: rect.minX, y: anchor - rect.maxY, width: rect.width, height: rect.height)
         }
-        let axValue = value as! AXValue
-        var point = CGPoint.zero
-        guard AXValueGetValue(axValue, .cgPoint, &point) else { return nil }
-        return point
-    }
-
-    private func copyCGSize(_ element: AXUIElement, attribute: String) -> CGSize? {
-        var value: AnyObject?
-        let result = AXUIElementCopyAttributeValue(element, attribute as CFString, &value)
-        guard result == .success,
-              let value,
-              CFGetTypeID(value) == AXValueGetTypeID() else {
-            return nil
+        return screens.compactMap { screen in
+            guard let id = (screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value
+            else { return nil }
+            return WindowDisplay(id: id, frame: convert(screen.frame), visibleFrame: convert(screen.visibleFrame))
         }
-        let axValue = value as! AXValue
-        var size = CGSize.zero
-        guard AXValueGetValue(axValue, .cgSize, &size) else { return nil }
-        return size
-    }
-
-    private func displayAreas(for screens: [NSScreen]) -> [DisplayArea] {
-        let yAxisAnchor = screens.first(where: { $0.frame.origin == .zero })?.frame.maxY
-            ?? screens[0].frame.maxY
-
-        return screens.map { screen in
-            DisplayArea(
-                screen: screen,
-                frame: axFrame(from: screen.frame, yAxisAnchor: yAxisAnchor),
-                visibleFrame: axFrame(from: screen.visibleFrame, yAxisAnchor: yAxisAnchor)
-            )
-        }
-    }
-
-    private func axFrame(from appKitFrame: CGRect, yAxisAnchor: CGFloat) -> CGRect {
-        CGRect(
-            x: appKitFrame.minX,
-            y: yAxisAnchor - appKitFrame.maxY,
-            width: appKitFrame.width,
-            height: appKitFrame.height
-        )
-    }
-
-    private func display(containing frame: CGRect, displays: [DisplayArea]) -> DisplayArea {
-        let center = CGPoint(x: frame.midX, y: frame.midY)
-        if let containingDisplay = displays.first(where: { $0.frame.contains(center) }) {
-            return containingDisplay
-        }
-
-        return displays.min { lhs, rhs in
-            distanceSquared(from: center, to: lhs.frame) < distanceSquared(from: center, to: rhs.frame)
-        } ?? displays[0]
-    }
-
-    private func adjacentDisplay(
-        from display: DisplayArea,
-        direction: CGFloat,
-        displays: [DisplayArea]
-    ) -> DisplayArea? {
-        let candidates = displays.filter { candidate in
-            guard candidate.screen !== display.screen else { return false }
-            return direction < 0
-                ? candidate.frame.midX < display.frame.midX
-                : candidate.frame.midX > display.frame.midX
-        }
-
-        return candidates.min { lhs, rhs in
-            let lhsScore = abs(lhs.frame.midX - display.frame.midX) + abs(lhs.frame.midY - display.frame.midY) * 0.25
-            let rhsScore = abs(rhs.frame.midX - display.frame.midX) + abs(rhs.frame.midY - display.frame.midY) * 0.25
-            return lhsScore < rhsScore
-        }
-    }
-
-    private func leftHalf(of frame: CGRect) -> CGRect {
-        CGRect(x: frame.minX, y: frame.minY, width: frame.width / 2, height: frame.height)
-    }
-
-    private func rightHalf(of frame: CGRect) -> CGRect {
-        CGRect(x: frame.midX, y: frame.minY, width: frame.width / 2, height: frame.height)
-    }
-
-    private func bottomHalf(of frame: CGRect) -> CGRect {
-        CGRect(x: frame.minX, y: frame.midY, width: frame.width, height: frame.height / 2)
-    }
-
-    private func topLeftQuarter(of frame: CGRect) -> CGRect {
-        CGRect(x: frame.minX, y: frame.minY, width: frame.width / 2, height: frame.height / 2)
-    }
-
-    private func topRightQuarter(of frame: CGRect) -> CGRect {
-        CGRect(x: frame.midX, y: frame.minY, width: frame.width / 2, height: frame.height / 2)
-    }
-
-    private func bottomLeftQuarter(of frame: CGRect) -> CGRect {
-        CGRect(x: frame.minX, y: frame.midY, width: frame.width / 2, height: frame.height / 2)
-    }
-
-    private func bottomRightQuarter(of frame: CGRect) -> CGRect {
-        CGRect(x: frame.midX, y: frame.midY, width: frame.width / 2, height: frame.height / 2)
-    }
-
-    private func centeredRestoreFrame(in frame: CGRect) -> CGRect {
-        let size = CGSize(width: frame.width * 0.72, height: frame.height * 0.72)
-        return CGRect(
-            x: frame.midX - size.width / 2,
-            y: frame.midY - size.height / 2,
-            width: size.width,
-            height: size.height
-        )
-    }
-
-    private func move(_ frame: CGRect, from source: CGRect, to target: CGRect) -> CGRect {
-        let width = min(frame.width, target.width)
-        let height = min(frame.height, target.height)
-        let relativeX = source.width > 0 ? (frame.minX - source.minX) / source.width : 0
-        let relativeY = source.height > 0 ? (frame.minY - source.minY) / source.height : 0
-        let rawFrame = CGRect(
-            x: target.minX + relativeX * target.width,
-            y: target.minY + relativeY * target.height,
-            width: width,
-            height: height
-        )
-        return clamped(rawFrame, inside: target)
-    }
-
-    private func clamped(_ frame: CGRect, inside bounds: CGRect) -> CGRect {
-        let width = min(frame.width, bounds.width)
-        let height = min(frame.height, bounds.height)
-        let minX = bounds.minX
-        let maxX = bounds.maxX - width
-        let minY = bounds.minY
-        let maxY = bounds.maxY - height
-        return CGRect(
-            x: min(max(frame.minX, minX), maxX),
-            y: min(max(frame.minY, minY), maxY),
-            width: width,
-            height: height
-        )
-    }
-
-    private func isClose(_ lhs: CGRect, to rhs: CGRect) -> Bool {
-        let tolerance: CGFloat = 18
-        return abs(lhs.minX - rhs.minX) <= tolerance
-            && abs(lhs.minY - rhs.minY) <= tolerance
-            && abs(lhs.width - rhs.width) <= tolerance
-            && abs(lhs.height - rhs.height) <= tolerance
-    }
-
-    private func isOnHorizontalSide(_ frame: CGRect, of screenFrame: CGRect, direction: CGFloat) -> Bool {
-        let edgeTolerance: CGFloat = 72
-        let sideTolerance: CGFloat = 96
-
-        if direction < 0 {
-            return frame.minX <= screenFrame.minX + edgeTolerance
-                && frame.midX <= screenFrame.midX + sideTolerance
-        }
-
-        return frame.maxX >= screenFrame.maxX - edgeTolerance
-            && frame.midX >= screenFrame.midX - sideTolerance
-    }
-
-    private func distanceSquared(from point: CGPoint, to rect: CGRect) -> CGFloat {
-        let dx = max(rect.minX - point.x, 0, point.x - rect.maxX)
-        let dy = max(rect.minY - point.y, 0, point.y - rect.maxY)
-        return dx * dx + dy * dy
     }
 }
