@@ -15,5 +15,6 @@ let package = Package(
         .executableTarget(
             name: "VibeMouse"
         ),
+        .testTarget(name: "VibeMouseTests", dependencies: ["VibeMouse"]),
     ]
 )

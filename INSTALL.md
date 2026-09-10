@@ -4,7 +4,7 @@
 
 Download the latest app zip from GitHub Releases:
 
-- `Mouse-Chord-Shot-v0.1.0-macOS-arm64.zip`
+- `Vibe-Mouse-v0.1.0-macOS-arm64.zip`
 
 This build is for Apple Silicon (`arm64`) Macs.
 
@@ -42,7 +42,7 @@ After granting permissions:
 2. Reopen it
 3. Click `Refresh Status`
 
-The status should show it is listening for the mouse chord.
+The status should show it is listening for screenshot, keyboard, and mouse shortcuts.
 
 ## Using It
 
@@ -55,30 +55,41 @@ Then click-drag to capture an area. The screenshot is copied to the clipboard.
 
 If you want normal Caps Lock behavior, disable **Settings → Behavior → Use Caps Lock for screenshot**.
 
-If enabled in the app:
+Palm-friendly Windows-style shortcuts are translated while Vibe Mouse is enabled:
 
-- Press **Back + Forward side buttons together** to paste clipboard (`Cmd+V`).
-- Press **Back side button alone** to pass Back through to apps normally.
-- Press **Forward side button** to toggle system Dictation on/off.
-- When Dictation is toggled off from Vibe Mouse, it automatically sends **Return**.
+- **Ctrl + Shift + C** copies the selected name or other text and immediately searches it in a new tab in your default browser.
+- **Ctrl + Option + V** searches the copied name or other text in a new tab in your default browser.
+- **Alt + Space** opens Spotlight with macOS Command+Space behavior.
+- **Alt + Tab** opens a thumbnail grid of individual windows from all apps. Keep Alt held and tap Tab to cycle, add Shift to go backwards, or use the arrows to move around the grid, then release Alt to choose. Escape cancels. Command+Tab keeps the native macOS app switcher.
+- **Command + Backtick**, **Ctrl + Backtick**, or **Alt + Backtick** opens a preview of the current app's windows. Hold the modifier and keep tapping the backtick/tilde key to cycle; add **Shift** to reverse, release to choose, or press **Escape** to cancel. Minimized windows are included. Thumbnails need Screen Recording permission and macOS 14 or later; otherwise titles and app icons are shown.
+- In either preview, **click a window card** to select it directly. Clicking outside closes the preview.
+- Recent thumbnails are reused while captures refresh, including for minimized windows. Missing previews retry automatically and when selected. The cache holds up to 48 thumbnails in memory for two minutes after capture; nothing is saved or uploaded.
+- **Ctrl + V** pastes with macOS Command+V.
+- **Ctrl + C**, **Ctrl + T**, **Ctrl + W**, and similar shortcuts map to their Mac Command equivalents.
+- **Ctrl + Enter** sends or submits in apps that use macOS Command+Enter.
+- **Ctrl + left click** opens links with macOS Command-click behavior.
+- **Ctrl + Backspace** (Mac Delete) deletes the previous word; **Ctrl + forward Delete** deletes the next word.
+- **Ctrl + Home/End** moves to document start/end; add Shift to select.
+- **Ctrl + Tab** and **Ctrl + Shift + Tab** are left alone so Chrome can cycle tabs.
+- **Ctrl + Arrow**, **Ctrl + Option + Arrow**, or **Command + Arrow** controls the focused window.
+- Repeating **Ctrl + Left/Right** from a side snap throws the window to the neighboring monitor.
+- Repeating **Command + Left/Right** from a side snap throws the window to the neighboring monitor.
+- **Ctrl + Shift + Left/Right** or **Command + Shift + Left/Right** moves the focused window to the physically neighboring monitor.
+- **Ctrl + Option + Shift + Left/Right** also moves directly between monitors.
+- **Up** after a half snap moves to a top quarter; another Up maximizes. **Down** steps from top quarter to half, bottom quarter, then the saved original size. Down after maximize restores the saved size.
+- Moving monitors preserves half/quarter/maximized placement. A floating window keeps its size when it fits.
+- Hold-to-repeat is ignored for window commands; tap again for the next step.
 
-### Experimental Forward Gestures (Preview)
+See **Settings → Shortcut guide** or the [full key guide](README.md#usage).
+For word movement and selection with Ctrl+Arrow, turn off **Settings → Behavior → Use Ctrl+Arrow for windows**. Ctrl+Option+Arrow and Command+Arrow remain available for windows.
 
-Enable this in **Settings → Behavior** to test an alternate control scheme:
+Mouse controls:
 
-- **Single-click Forward**: toggle Dictation
-- **Press + drag Forward, then release**: capture selected area to clipboard
-- **Double-click Forward**: paste clipboard (`Cmd+V`)
-
-## Configure Dictation Shortcut (for Forward Button)
-
-Set macOS Dictation to use this shortcut so Vibe Mouse can toggle it:
-
-1. Open **System Settings → Keyboard → Dictation**
-2. Ensure Dictation is turned on
-3. Set Dictation shortcut to **Control + Option + Command + D**
-
-Vibe Mouse sends that shortcut when you press the Forward side button.
+- **Center click** over a browser tab closes that tab.
+- **Center click** over a link or Gmail inbox message opens it in a new browser tab.
+- **Center click** elsewhere toggles Windows-style auto-scroll; farther from the anchor scrolls faster.
+- **Left click** stops auto-scroll when it is active.
+- Back and Forward side buttons pass through normally.
 
 ## If The App Is Not Listed In macOS Permission Pickers
 

@@ -25,9 +25,9 @@ struct MenuPanelView: View {
 
                 HStack(spacing: 10) {
                     VStack(alignment: .leading, spacing: 3) {
-                        Text("Enable mouse shortcuts")
+                        Text("Enable shortcuts")
                             .font(.subheadline.weight(.semibold))
-                        Text(model.isEnabled ? listeningSummaryText : "Global mouse shortcuts are disabled.")
+                        Text(model.isEnabled ? listeningSummaryText : "Keyboard and mouse shortcuts are disabled.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
@@ -62,6 +62,14 @@ struct MenuPanelView: View {
                     }
                     .buttonStyle(PanelSecondaryButtonStyle())
                 }
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(model.buildVersionLabel)
+                        .font(.caption2.weight(.semibold))
+                    Text(model.runtimeOriginLabel)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
             }
             .padding(14)
         }
@@ -76,25 +84,15 @@ struct MenuPanelView: View {
     }
 
     private var shortcutSummaryText: String {
-        if model.forwardButtonDictationEnabled {
-            if model.screenshotPasteStartsDictationActive {
-                return "\(screenshotKeyboardCompactSummaryGesture) screenshot, next-click paste, Forward Dictation, screenshot paste can auto-start Dictation"
-            }
-            return "\(screenshotKeyboardCompactSummaryGesture) screenshot, next-click paste, Forward Dictation"
-        }
-
-        return "\(screenshotKeyboardCompactSummaryGesture) screenshot, next-click paste"
+        let searchSegment = model.searchClipboardEnabled ? ", Ctrl+Shift+C search" : ""
+        return "\(screenshotKeyboardCompactSummaryGesture) screenshot\(searchSegment), Ctrl-click links, Command arrows"
     }
 
     private var listeningSummaryText: String {
-        if model.forwardButtonDictationEnabled {
-            if model.screenshotPasteStartsDictationActive {
-                return "Listening for \(screenshotListeningGesture) screenshot, next-click paste after capture, Forward Dictation toggle, and screenshot auto-start Dictation that stops on the following click."
-            }
-            return "Listening for \(screenshotListeningGesture) screenshot, next-click paste after capture, and Forward Dictation toggle."
-        }
-
-        return "Listening for \(screenshotListeningGesture) screenshot triggers and next-click paste after capture."
+        let searchSegment = model.searchClipboardEnabled
+            ? "Ctrl+Shift+C copy-and-search, "
+            : ""
+        return "\(model.windowShortcutLabel) for windows. \(searchSegment)Windows-style Ctrl keys and middle-click actions. Open Settings for the full shortcut guide."
     }
 
     private var screenshotKeyboardSummaryGesture: String {

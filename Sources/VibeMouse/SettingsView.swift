@@ -12,6 +12,7 @@ struct SettingsView: View {
                 VStack(alignment: .leading, spacing: 20) {
                     headerCard
                     behaviorCard
+                    shortcutGuideCard
                     permissionsCard
                     statusCard
                 }
@@ -36,13 +37,6 @@ struct SettingsView: View {
         )
     }
 
-    private var forwardButtonDictationBinding: Binding<Bool> {
-        Binding(
-            get: { model.forwardButtonDictationEnabled },
-            set: { model.forwardButtonDictationEnabled = $0 }
-        )
-    }
-
     private var launchAtLoginBinding: Binding<Bool> {
         Binding(
             get: { model.launchAtLoginEnabled },
@@ -50,59 +44,17 @@ struct SettingsView: View {
         )
     }
 
-    private var screenshotPasteStartsDictationBinding: Binding<Bool> {
-        Binding(
-            get: { model.screenshotPasteStartsDictationEnabled },
-            set: { model.screenshotPasteStartsDictationEnabled = $0 }
-        )
-    }
-
-    private var dictationBackendBinding: Binding<AppModel.DictationBackend> {
-        Binding(
-            get: { model.dictationBackend },
-            set: { model.dictationBackend = $0 }
-        )
-    }
-
-    private var whisperModelPresetBinding: Binding<WhisperDictationService.ModelPreset> {
-        Binding(
-            get: { model.whisperModelPreset },
-            set: { model.whisperModelPreset = $0 }
-        )
-    }
-
-    private var whisperExecutablePathBinding: Binding<String> {
-        Binding(
-            get: { model.whisperExecutablePath },
-            set: { model.whisperExecutablePath = $0 }
-        )
-    }
-
-    private var whisperModelDirectoryPathBinding: Binding<String> {
-        Binding(
-            get: { model.whisperModelDirectoryPath },
-            set: { model.whisperModelDirectoryPath = $0 }
-        )
-    }
-
-    private var whisperMicrophoneSelectionBinding: Binding<String> {
-        Binding(
-            get: { model.whisperMicrophoneSelectionID },
-            set: { model.whisperMicrophoneSelectionID = $0 }
-        )
-    }
-
-    private var whisperDebugRecordingsBinding: Binding<Bool> {
-        Binding(
-            get: { model.whisperDebugRecordingsEnabled },
-            set: { model.whisperDebugRecordingsEnabled = $0 }
-        )
-    }
-
     private var capsLockScreenshotBinding: Binding<Bool> {
         Binding(
             get: { model.capsLockScreenshotEnabled },
             set: { model.capsLockScreenshotEnabled = $0 }
+        )
+    }
+
+    private var searchClipboardBinding: Binding<Bool> {
+        Binding(
+            get: { model.searchClipboardEnabled },
+            set: { model.searchClipboardEnabled = $0 }
         )
     }
 
@@ -134,29 +86,31 @@ struct SettingsView: View {
     }
 
     private var captureLegendDetail: String {
-        "Take screenshot, then click to paste"
+        "Take screenshot and keep it on the clipboard"
     }
 
-    private var pasteLegendGesture: String {
-        "Next Click"
+    private var keyboardLegendGesture: String {
+        "Ctrl shortcuts"
     }
 
-    private var pasteLegendDetail: String {
-        model.screenshotPasteStartsDictationActive
-            ? "After a screenshot, click the target field to paste it and begin dictation. The following left click stops dictation."
-            : "After a screenshot, click the target field to paste it."
+    private var keyboardLegendDetail: String {
+        "Use Windows muscle memory for Spotlight, app switching, Mac commands, copy-and-search, links, and word-delete."
     }
 
-    private var dictationLegendGesture: String {
-        "Forward Button"
+    private var windowLegendGesture: String {
+        "Command+Arrow"
     }
 
-    private var dictationLegendDetail: String {
-        guard model.forwardButtonDictationEnabled else { return "Enable in Behavior" }
-        if model.isAppleDictationBackendSelected {
-            return "Toggle macOS Dictation (\(model.dictationShortcutLabel)); sends Return when Dictation stops."
-        }
-        return "Toggle whisper.cpp recording. Press once to start, press again to transcribe and paste."
+    private var windowLegendDetail: String {
+        "Snap, move between monitors, and restore your previous size."
+    }
+
+    private var autoScrollLegendGesture: String {
+        "Center click"
+    }
+
+    private var autoScrollLegendDetail: String {
+        "Close browser tabs; open links and Gmail messages in a new tab; elsewhere toggle auto-scroll."
     }
 
     private var headerCard: some View {
@@ -178,9 +132,7 @@ struct SettingsView: View {
                 }
 
                 Text(
-                    model.screenshotPasteStartsDictationActive
-                        ? "Global shortcuts: \(keyboardCaptureSummary) capture, click the target field to paste and start dictation, then click once more to stop."
-                        : "Global shortcuts: \(keyboardCaptureSummary) capture, click the target field to paste, and use Forward for Dictation when you want it."
+                    "Windows-style keyboard shortcuts, predictable window placement, copy-and-search, and mouse actions. The shortcut guide below lists every key."
                 )
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
@@ -200,19 +152,25 @@ struct SettingsView: View {
                                 tint: .blue
                             )
                             ShortcutLegendItem(
-                                systemImage: "doc.on.clipboard",
-                                title: "Paste",
-                                gesture: pasteLegendGesture,
-                                detail: pasteLegendDetail,
+                                systemImage: "keyboard",
+                                title: "Keyboard",
+                                gesture: keyboardLegendGesture,
+                                detail: keyboardLegendDetail,
                                 tint: .green
                             )
                             ShortcutLegendItem(
-                                systemImage: "mic.fill",
-                                title: "Dictate",
-                                gesture: dictationLegendGesture,
-                                detail: dictationLegendDetail,
-                                tint: model.forwardButtonDictationEnabled ? .orange : .gray,
-                                enabled: model.forwardButtonDictationEnabled
+                                systemImage: "rectangle.2.swap",
+                                title: "Windows",
+                                gesture: windowLegendGesture,
+                                detail: windowLegendDetail,
+                                tint: .purple
+                            )
+                            ShortcutLegendItem(
+                                systemImage: "arrow.up.and.down",
+                                title: "Auto-scroll",
+                                gesture: autoScrollLegendGesture,
+                                detail: autoScrollLegendDetail,
+                                tint: .orange
                             )
                         }
 
@@ -225,19 +183,25 @@ struct SettingsView: View {
                                 tint: .blue
                             )
                             ShortcutLegendItem(
-                                systemImage: "doc.on.clipboard",
-                                title: "Paste",
-                                gesture: pasteLegendGesture,
-                                detail: pasteLegendDetail,
+                                systemImage: "keyboard",
+                                title: "Keyboard",
+                                gesture: keyboardLegendGesture,
+                                detail: keyboardLegendDetail,
                                 tint: .green
                             )
                             ShortcutLegendItem(
-                                systemImage: "mic.fill",
-                                title: "Dictate",
-                                gesture: dictationLegendGesture,
-                                detail: dictationLegendDetail,
-                                tint: model.forwardButtonDictationEnabled ? .orange : .gray,
-                                enabled: model.forwardButtonDictationEnabled
+                                systemImage: "rectangle.2.swap",
+                                title: "Windows",
+                                gesture: windowLegendGesture,
+                                detail: windowLegendDetail,
+                                tint: .purple
+                            )
+                            ShortcutLegendItem(
+                                systemImage: "arrow.up.and.down",
+                                title: "Auto-scroll",
+                                gesture: autoScrollLegendGesture,
+                                detail: autoScrollLegendDetail,
+                                tint: .orange
                             )
                         }
                     }
@@ -253,17 +217,15 @@ struct SettingsView: View {
     private var behaviorCard: some View {
         SettingsCard(
             title: "Behavior",
-            subtitle: "Tune the screenshot chord trigger and enable or disable the global mouse shortcuts."
+            subtitle: "Choose your window keys and tune screenshots, search, and scrolling."
         ) {
             VStack(alignment: .leading, spacing: 14) {
                 HStack(spacing: 12) {
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("Enable mouse shortcuts")
+                        Text("Enable keyboard and mouse shortcuts")
                             .font(.headline)
                         Text(
-                            model.screenshotPasteStartsDictationActive
-                                ? "When enabled, the app listens globally for screenshot capture (\(screenshotListeningLegend)), click-to-paste after capture, and optional dictation auto-start with stop-on-next-click."
-                                : "When enabled, the app listens globally for screenshot capture (\(screenshotListeningLegend)), click-to-paste after capture, and optional Forward-button Dictation."
+                            "Enable screenshots (\(screenshotListeningLegend)), Windows-style keyboard shortcuts, window placement, and middle-click actions."
                         )
                             .font(.caption)
                             .foregroundStyle(.secondary)
@@ -278,15 +240,53 @@ struct SettingsView: View {
 
                 HStack(spacing: 12) {
                     VStack(alignment: .leading, spacing: 4) {
+                        Text("Copy & Search")
+                            .font(.headline)
+                        Text(
+                            model.searchClipboardEnabled
+                                ? "Select a name and press Ctrl+Shift+C to copy and search it immediately."
+                                : "Copy-and-search is off. Normal Ctrl-to-Command remapping still applies."
+                        )
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Toggle("", isOn: searchClipboardBinding)
+                        .labelsHidden()
+                        .toggleStyle(.switch)
+                }
+                .padding(14)
+                .roundedSurface()
+
+                HStack(spacing: 12) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Use Ctrl+Arrow for windows")
+                            .font(.headline)
+                        Text(model.controlArrowWindowShortcutsEnabled
+                            ? "Keep your existing window keys. Ctrl+Option+Arrow and Command+Arrow also work."
+                            : "Ctrl+Left/Right moves by word; add Shift to select. Use Command+Arrow or Ctrl+Option+Arrow for windows.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Toggle("", isOn: $model.controlArrowWindowShortcutsEnabled)
+                        .labelsHidden()
+                        .toggleStyle(.switch)
+                }
+                .padding(14)
+                .roundedSurface()
+
+                HStack(spacing: 12) {
+                    VStack(alignment: .leading, spacing: 4) {
                         Text("Launch at Login")
                             .font(.headline)
                         Text(
                             model.launchAtLoginRequiresApproval
-                                ? "Mouse Chord Shot is waiting for approval in System Settings > General > Login Items."
+                                ? "Vibe Mouse is waiting for approval in System Settings > General > Login Items."
                                 : (
                                     model.launchAtLoginEnabled
-                                        ? "Mouse Chord Shot will open automatically when you log in."
-                                        : "Open Mouse Chord Shot automatically when you log in."
+                                        ? "Vibe Mouse will open automatically when you log in."
+                                        : "Open Vibe Mouse automatically when you log in."
                                 )
                         )
                             .font(.caption)
@@ -371,161 +371,6 @@ struct SettingsView: View {
                 .padding(14)
                 .roundedSurface()
 
-                HStack(spacing: 12) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Enable Forward-button Dictation")
-                            .font(.headline)
-                        Text(
-                            model.isAppleDictationBackendSelected
-                                ? "Use the Forward side mouse button to send \(model.dictationShortcutLabel). Set the same shortcut in macOS Keyboard > Dictation. When Dictation stops, Return is sent automatically."
-                                : "Use the Forward side mouse button to start/stop whisper.cpp recording. On stop, audio is transcribed and pasted."
-                        )
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                    Spacer()
-                    Toggle("", isOn: forwardButtonDictationBinding)
-                        .labelsHidden()
-                        .toggleStyle(.switch)
-                }
-                .padding(14)
-                .roundedSurface()
-
-                HStack(spacing: 12) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Start dictation after screenshot paste")
-                            .font(.headline)
-                        Text(
-                            model.forwardButtonDictationEnabled
-                                ? (
-                                    model.screenshotPasteStartsDictationEnabled
-                                        ? "After a screenshot, the next click pastes it and starts dictation. The following left click stops dictation."
-                                        : "Screenshots stay quiet. Turn this on only when you want the paste click to start dictation too."
-                                )
-                                : "Screenshots stay quiet. Turn on Forward-button Dictation first if you want screenshot paste to optionally start dictation."
-                        )
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                    Spacer()
-                    Toggle("", isOn: screenshotPasteStartsDictationBinding)
-                        .labelsHidden()
-                        .toggleStyle(.switch)
-                }
-                .padding(14)
-                .roundedSurface()
-
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("Dictation Engine")
-                        .font(.headline)
-
-                    Picker("Engine", selection: dictationBackendBinding) {
-                        ForEach(AppModel.DictationBackend.allCases) { backend in
-                            Text(backend.displayName)
-                                .tag(backend)
-                        }
-                    }
-                    .pickerStyle(.segmented)
-
-                    if model.isAppleDictationBackendSelected {
-                        Text("Apple mode uses macOS Dictation via \(model.dictationShortcutLabel).")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-
-                    if model.isWhisperBackendSelected {
-                        VStack(alignment: .leading, spacing: 10) {
-                            VStack(alignment: .leading, spacing: 6) {
-                                Text("Whisper model")
-                                    .font(.subheadline.weight(.semibold))
-                                Picker("Whisper model", selection: whisperModelPresetBinding) {
-                                    ForEach(WhisperDictationService.ModelPreset.allCases) { preset in
-                                        Text(preset.displayName).tag(preset)
-                                    }
-                                }
-                                .pickerStyle(.menu)
-                                Text("Expected model file: \(model.whisperModelFileName)")
-                                    .font(.caption2)
-                                    .foregroundStyle(.secondary)
-                            }
-
-                            VStack(alignment: .leading, spacing: 6) {
-                                Text("Whisper microphone")
-                                    .font(.subheadline.weight(.semibold))
-                                Picker("Whisper microphone", selection: whisperMicrophoneSelectionBinding) {
-                                    ForEach(model.whisperMicrophoneOptions) { option in
-                                        Text(option.displayName).tag(option.id)
-                                    }
-                                }
-                                .pickerStyle(.menu)
-                                Text("Selected: \(model.whisperSelectedMicrophoneSummary)")
-                                    .font(.caption2)
-                                    .foregroundStyle(.secondary)
-                                Text("Built-in mic is recommended when your output is on Bluetooth so the start cue does not get swallowed by route switching.")
-                                    .font(.caption2)
-                                    .foregroundStyle(.secondary)
-                            }
-
-                            VStack(alignment: .leading, spacing: 6) {
-                                Text("whisper executable path (optional)")
-                                    .font(.subheadline.weight(.semibold))
-                                TextField(
-                                    "Auto-detect whisper-cli from Homebrew paths",
-                                    text: whisperExecutablePathBinding
-                                )
-                                .textFieldStyle(.roundedBorder)
-                                .font(.system(.caption, design: .monospaced))
-                            }
-
-                            VStack(alignment: .leading, spacing: 6) {
-                                Text("Model directory")
-                                    .font(.subheadline.weight(.semibold))
-                                TextField(
-                                    WhisperDictationService.defaultModelDirectoryPath,
-                                    text: whisperModelDirectoryPathBinding
-                                )
-                                .textFieldStyle(.roundedBorder)
-                                .font(.system(.caption, design: .monospaced))
-
-                                HStack(spacing: 10) {
-                                    Button("Open Model Directory") {
-                                        model.openWhisperModelDirectoryInFinder()
-                                    }
-                                    .buttonStyle(SecondaryCapsuleButtonStyle())
-                                }
-                            }
-
-                            HStack(spacing: 12) {
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Text("Keep debug recordings")
-                                        .font(.subheadline.weight(.semibold))
-                                    Text("Saves each captured whisper recording as a WAV file for debugging.")
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                }
-                                Spacer()
-                                Toggle("", isOn: whisperDebugRecordingsBinding)
-                                    .labelsHidden()
-                                    .toggleStyle(.switch)
-                            }
-
-                            VStack(alignment: .leading, spacing: 6) {
-                                Text(model.whisperDebugRecordingsPath)
-                                    .font(.system(.caption, design: .monospaced))
-                                    .foregroundStyle(.secondary)
-                                    .textSelection(.enabled)
-
-                                Button("Open Debug Recordings") {
-                                    model.openWhisperDebugRecordingsInFinder()
-                                }
-                                .buttonStyle(SecondaryCapsuleButtonStyle())
-                            }
-                        }
-                    }
-                }
-                .padding(14)
-                .roundedSurface()
-
                 VStack(alignment: .leading, spacing: 10) {
                     HStack(spacing: 12) {
                         VStack(alignment: .leading, spacing: 4) {
@@ -595,6 +440,57 @@ struct SettingsView: View {
         }
     }
 
+    private var shortcutGuideCard: some View {
+        SettingsCard(title: "Shortcut guide", subtitle: "Alt means Option (⌥) on a Mac keyboard. Command is ⌘.") {
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Windows · \(model.windowShortcutLabel)")
+                    .font(.headline)
+                Text("Plain arrows move the cursor or scroll; Shift+arrows select text. Window actions require holding one of the modifiers above.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                shortcutRow("← / →", "Snap to a half. Repeat toward the outside edge to move to the next monitor; quarters keep their row.")
+                shortcutRow("↑", "Half → top quarter → maximize. Bottom quarter → top quarter.")
+                shortcutRow("↓", "Top quarter → half → bottom quarter → restore. Maximized → previous size.")
+                shortcutRow("+ Shift + ← / →", "Move directly to the neighboring monitor, keeping your half, quarter, or floating placement.")
+                Divider()
+                Text("Everyday keys").font(.headline)
+                shortcutRow("Ctrl+C / X / V / A", "Copy / cut / paste / select all")
+                shortcutRow("Ctrl+Z / Y", "Undo / redo (Ctrl+Shift+Z also works)")
+                shortcutRow("Ctrl+T / W / Shift+T", "New tab / close tab / reopen closed tab in browsers")
+                shortcutRow("Ctrl+Tab / Ctrl+Shift+Tab", "Next / previous browser tab")
+                shortcutRow("Ctrl+L / F / S / P", "Address bar / find / save / print")
+                shortcutRow("Ctrl+N / O / R", "New / open / reload, where supported")
+                shortcutRow("Ctrl+B / I / U / K", "Bold / italic / underline / link, where supported")
+                shortcutRow("Ctrl+D / 1…9 / 0 / − / =", "App's Command equivalent: bookmark, select a tab, or zoom")
+                shortcutRow("Ctrl+Backspace / Delete", "Delete previous / next word (Mac Delete is Backspace)")
+                shortcutRow("Ctrl+Home / End", "Start / end of document; add Shift to select")
+                shortcutRow("Ctrl+Enter", "Send/submit in apps supporting Command+Enter")
+                shortcutRow("Alt+Tab / Alt+Shift+Tab", "Preview windows from all apps; cycle forward / backwards; release Alt to choose")
+                shortcutRow("⌘+` / Ctrl+` / Alt+`", "Preview this app's windows; keep tapping, release the modifier to choose")
+                shortcutRow("Arrows / Esc / Enter in preview", "Navigate / cancel / choose. Add Shift to reverse while cycling.")
+                shortcutRow("Click a preview card", "Switch directly to that window. Click outside to close the preview.")
+                shortcutRow("Alt+Space", "Spotlight")
+                if model.searchClipboardEnabled {
+                    shortcutRow("Ctrl+Shift+C", "Copy selection and search Google in your browser")
+                }
+                Divider()
+                Text("Mouse and screenshots").font(.headline)
+                shortcutRow("Middle click", "Browser tab: close. Link or Gmail message: open new tab. Elsewhere: auto-scroll.")
+                shortcutRow("Ctrl+click", "Command-click behavior, including links in a new tab")
+                shortcutRow(captureLegendGesture, "Select an area; screenshot goes to the clipboard. Escape cancels.")
+                shortcutRow("Escape / middle click", "Stop auto-scroll; a left click also stops it")
+            }
+        }
+    }
+
+    private func shortcutRow(_ keys: String, _ detail: String) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(keys).font(.system(.subheadline, design: .monospaced).weight(.medium))
+            Text(detail).font(.caption).foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
     private var keyboardCaptureSummary: String {
         model.capsLockScreenshotEnabled ? "Caps Lock + Left/Right" : "Left/Right"
     }
@@ -637,7 +533,7 @@ struct SettingsView: View {
 
                 PermissionRow(
                     title: "Screen Recording",
-                    description: "Required for interactive screenshot capture.",
+                    description: "Required for screenshots and window preview thumbnails.",
                     isGranted: model.screenRecordingGranted,
                     requestTitle: "Request",
                     requestAction: model.requestScreenRecordingPermission,
@@ -679,7 +575,7 @@ struct SettingsView: View {
     private var statusCard: some View {
         SettingsCard(
             title: "Status",
-            subtitle: "Live monitor state and the latest screenshot, paste, or Dictation action."
+            subtitle: "Live monitor state and the latest screenshot, window, or auto-scroll action."
         ) {
             VStack(alignment: .leading, spacing: 12) {
                 HStack(alignment: .top, spacing: 12) {
