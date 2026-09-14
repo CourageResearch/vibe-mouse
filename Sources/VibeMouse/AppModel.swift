@@ -46,6 +46,13 @@ final class AppModel: ObservableObject {
         }
     }
 
+    @Published var spellingShortcutEnabled: Bool {
+        didSet {
+            defaults.set(spellingShortcutEnabled, forKey: Self.spellingShortcutEnabledKey)
+            configureKeyboardCaptureCallbacks()
+        }
+    }
+
     var windowShortcutLabel: String {
         controlArrowWindowShortcutsEnabled
             ? "Command+Arrow, Ctrl+Arrow, or Ctrl+Option+Arrow"
@@ -140,6 +147,7 @@ final class AppModel: ObservableObject {
     private static let capsLockScreenshotEnabledKey = "mouseChordShot.screenshot.capsLockEnabled"
     private static let searchClipboardEnabledKey = "mouseChordShot.searchClipboard.enabled"
     private static let controlArrowWindowShortcutsKey = "mouseChordShot.windows.controlArrows"
+    private static let spellingShortcutEnabledKey = "mouseChordShot.spelling.modifierTap"
     private static let reverseScrollingEnabledKey = "mouseChordShot.scroll.reverseEnabled"
     private static let mouseScrollSpeedKey = "mouseChordShot.scroll.mouseSpeed"
     private static let scrollEventLoggingEnabledKey = "mouseChordShot.scroll.debugLogEnabled"
@@ -159,6 +167,7 @@ final class AppModel: ObservableObject {
     private let windowsAutoScrollService: WindowsAutoScrollService
     private let windowTilerService: WindowTilerService
     private let windowSwitcherService = WindowSwitcherService()
+    private let spellCheckService = SpellCheckService()
     private var activationObserver: NSObjectProtocol?
     private var terminationObserver: NSObjectProtocol?
     private var copyAndSearchTask: Task<Void, Never>?
@@ -187,6 +196,7 @@ final class AppModel: ObservableObject {
         self.controlArrowWindowShortcutsEnabled = defaults.object(
             forKey: Self.controlArrowWindowShortcutsKey
         ) as? Bool ?? true
+        self.spellingShortcutEnabled = defaults.object(forKey: Self.spellingShortcutEnabledKey) as? Bool ?? true
         self.reverseScrollingEnabled = defaults.object(
             forKey: Self.reverseScrollingEnabledKey
         ) as? Bool ?? false
@@ -630,6 +640,16 @@ final class AppModel: ObservableObject {
     }
 
     private func configureKeyboardCaptureCallbacks() {
+        if spellingShortcutEnabled {
+            monitor.onSpellCheck = { [weak self] in
+                guard let self, self.isEnabled, self.spellingShortcutEnabled, !self.screenshotCaptureInProgress else { return }
+                if let message = self.spellCheckService.showSuggestions() {
+                    self.lastActionMessage = message
+                }
+            }
+        } else {
+            monitor.onSpellCheck = nil
+        }
         monitor.disableCapsLockLockingWhileIntercepting = capsLockScreenshotEnabled
 
         if searchClipboardEnabled {
@@ -714,7 +734,7 @@ final class AppModel: ObservableObject {
         let searchClipboardSegment = searchClipboardEnabled
             ? ", Ctrl+Shift+C copy-and-search"
             : ""
-        let keyboardSegment = "Alt+Space Spotlight, Alt+Tab all-window previews, Alt+` same-app window previews, palm Ctrl shortcuts, Ctrl-click links, and Ctrl+Delete word-delete\(searchClipboardSegment)"
+        let keyboardSegment = "Alt+Space Spotlight, Command+Tab or Alt+Tab all-window previews, Alt+` same-app window previews, palm Ctrl shortcuts, Ctrl-click links, and Ctrl+Delete word-delete\(searchClipboardSegment)"
         let windowSegment = "\(windowShortcutLabel) window tiling"
         let autoScrollSegment = "center-click tab closing, link or Gmail message opening, or auto-scroll"
         let scrollSegment = reverseScrollingEnabled ? ", reversed scrolling" : ""

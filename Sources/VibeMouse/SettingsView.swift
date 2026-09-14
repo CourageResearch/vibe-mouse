@@ -260,6 +260,22 @@ struct SettingsView: View {
 
                 HStack(spacing: 12) {
                     VStack(alignment: .leading, spacing: 4) {
+                        Text("Tap Alt or Command for spelling")
+                            .font(.headline)
+                        Text("Tap and release Alt or Command at a misspelled word. If the text cursor is unavailable, point the mouse at the underlined word.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Toggle("", isOn: $model.spellingShortcutEnabled)
+                        .labelsHidden()
+                        .toggleStyle(.switch)
+                }
+                .padding(14)
+                .roundedSurface()
+
+                HStack(spacing: 12) {
+                    VStack(alignment: .leading, spacing: 4) {
                         Text("Use Ctrl+Arrow for windows")
                             .font(.headline)
                         Text(model.controlArrowWindowShortcutsEnabled
@@ -465,7 +481,8 @@ struct SettingsView: View {
                 shortcutRow("Ctrl+Backspace / Delete", "Delete previous / next word (Mac Delete is Backspace)")
                 shortcutRow("Ctrl+Home / End", "Start / end of document; add Shift to select")
                 shortcutRow("Ctrl+Enter", "Send/submit in apps supporting Command+Enter")
-                shortcutRow("Alt+Tab / Alt+Shift+Tab", "Preview windows from all apps; cycle forward / backwards; release Alt to choose")
+                shortcutRow("Tap Alt or Command alone", "Open spelling suggestions at the text cursor in a misspelled word")
+                shortcutRow("Command+Tab / Alt+Tab", "Preview windows from all apps. Add Shift to reverse; release Command or Alt to choose.")
                 shortcutRow("⌘+` / Ctrl+` / Alt+`", "Preview this app's windows; keep tapping, release the modifier to choose")
                 shortcutRow("Arrows / Esc / Enter in preview", "Navigate / cancel / choose. Add Shift to reverse while cycling.")
                 shortcutRow("Click a preview card", "Switch directly to that window. Click outside to close the preview.")

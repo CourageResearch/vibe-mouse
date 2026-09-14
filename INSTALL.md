@@ -4,7 +4,7 @@
 
 Download the latest app zip from GitHub Releases:
 
-- `Vibe-Mouse-v0.1.0-macOS-arm64.zip`
+- [Vibe-Mouse-v0.2.0-macOS-arm64.zip](https://github.com/CourageResearch/vibe-mouse/releases/download/v0.2.0/Vibe-Mouse-v0.2.0-macOS-arm64.zip)
 
 This build is for Apple Silicon (`arm64`) Macs.
 
@@ -57,10 +57,12 @@ If you want normal Caps Lock behavior, disable **Settings → Behavior → Use C
 
 Palm-friendly Windows-style shortcuts are translated while Vibe Mouse is enabled:
 
+- **Tap and release Alt/Option or Command alone** with the text cursor inside or immediately after a misspelled word to open its correction menu. If the text cursor isn't available, point the mouse at the underlined word and tap again to open the editor's native context menu. Use arrow keys and Enter, or click a suggestion. The field must expose itself through Accessibility and support native spelling suggestions. Turn this off in **Settings → Behavior → Tap Alt or Command for spelling**. Modifier chords and holds longer than half a second do not trigger it. Keep other apps' dictation hotkeys on a different key.
+
 - **Ctrl + Shift + C** copies the selected name or other text and immediately searches it in a new tab in your default browser.
 - **Ctrl + Option + V** searches the copied name or other text in a new tab in your default browser.
 - **Alt + Space** opens Spotlight with macOS Command+Space behavior.
-- **Alt + Tab** opens a thumbnail grid of individual windows from all apps. Keep Alt held and tap Tab to cycle, add Shift to go backwards, or use the arrows to move around the grid, then release Alt to choose. Escape cancels. Command+Tab keeps the native macOS app switcher.
+- **Command + Tab** or **Alt + Tab** opens a thumbnail grid of individual windows from all apps. Keep the starting modifier held and tap Tab to cycle, add Shift to go backwards, or use the arrows to move around the grid, then release Command or Alt to choose. Escape cancels. Command+Tab uses Vibe Mouse previews in place of the native macOS app switcher while Vibe Mouse is enabled.
 - **Command + Backtick**, **Ctrl + Backtick**, or **Alt + Backtick** opens a preview of the current app's windows. Hold the modifier and keep tapping the backtick/tilde key to cycle; add **Shift** to reverse, release to choose, or press **Escape** to cancel. Minimized windows are included. Thumbnails need Screen Recording permission and macOS 14 or later; otherwise titles and app icons are shown.
 - In either preview, **click a window card** to select it directly. Clicking outside closes the preview.
 - Recent thumbnails are reused while captures refresh, including for minimized windows. Missing previews retry automatically and when selected. The cache holds up to 48 thumbnails in memory for two minutes after capture; nothing is saved or uploaded.

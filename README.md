@@ -17,7 +17,7 @@ The app is built with SwiftUI/AppKit and runs as a menu bar extra (`LSUIElement`
 - Palm-friendly keyboard and click remaps:
   - `Ctrl+Shift+C` copies the selected name or other text and immediately searches it in a new default-browser tab
   - `Alt+Space` is translated to `Command+Space` for Spotlight
-  - `Alt+Tab` opens a grid of individual windows from all apps, with thumbnails and app icons; `Alt+Shift+Tab` cycles backwards
+  - `Command+Tab` or `Alt+Tab` opens a grid of individual windows from all apps, with thumbnails and app icons; add `Shift` to cycle backwards
   - `Command+Backtick`, `Ctrl+Backtick`, or `Alt+Backtick` opens a thumbnail switcher for windows in the current app
   - `Ctrl+V`, `Ctrl+C`, `Ctrl+T`, `Ctrl+W`, and similar Windows muscle-memory shortcuts are translated to Mac `Command` shortcuts
   - `Ctrl+Enter` is translated to `Command+Enter` for sending/submitting in apps that support it
@@ -81,6 +81,7 @@ The full guide is also available in **Settings → Shortcut guide**.
 | Ctrl+T / W / Shift+T | New tab / close tab / reopen closed tab in browsers |
 | Ctrl+Tab / Ctrl+Shift+Tab | Next / previous browser tab |
 | Ctrl+L / F / S / P | Address bar / find / save / print |
+| Tap Alt or Command alone | Open the native correction menu at a misspelled word in a text field |
 | Ctrl+N / O / R | New / open / reload, where supported |
 | Ctrl+B / I / U / K | Bold / italic / underline / link, where supported |
 | Ctrl+D | App's Command+D action, e.g. bookmark in Chrome |
@@ -88,7 +89,7 @@ The full guide is also available in **Settings → Shortcut guide**.
 | Ctrl+Enter | Send/submit in apps supporting Command+Enter |
 | Ctrl+Backspace / Ctrl+forward Delete | Delete previous / next word |
 | Ctrl+Home / End | Document start / end; add Shift to select |
-| Alt+Tab / Alt+Shift+Tab | Preview individual windows from all apps; cycle forward / backwards; release Alt to choose |
+| Command+Tab / Alt+Tab | Preview individual windows from all apps; add Shift to reverse; release Command or Alt to choose |
 | Command+backtick / Ctrl+backtick / Alt+backtick | Preview windows in the current app; release the modifier to choose |
 | Add Shift while cycling windows | Cycle backwards; Escape cancels, Enter chooses |
 | Alt+Space | Spotlight |
@@ -106,7 +107,7 @@ You can also **click any preview card** to switch directly to that window while 
 
 Recent thumbnails appear immediately while fresh captures load, with priority given to the selected window. Failed captures retry automatically; selecting a missing preview retries it again. Minimized windows use their last available thumbnail when one exists. Up to 48 thumbnails stay in memory for two minutes after capture, then expire. They are never saved or uploaded. A window with no available capture or unambiguous match still shows its app icon.
 
-**Alt+Tab** opens an **all-windows grid** with a separate thumbnail, title, and app icon for each window. Keep **Alt** held and tap **Tab** to continue cycling; add **Shift** to cycle backwards. **Left/Right** moves between windows, **Up/Down** moves between rows, **Enter** chooses, and **Escape** cancels. Release **Alt** or **click a card** to activate that window's app and bring the specific window forward. The grid includes minimized windows and scrolls to keep the selection visible. **Command+Tab** still uses the native macOS app switcher.
+**Command+Tab** or **Alt+Tab** opens an **all-windows grid** with a separate thumbnail, title, and app icon for each window. Use **Command+Tab** on the MacBook keyboard or either shortcut on an external keyboard. Keep the starting modifier (**Command** or **Alt**) held and tap **Tab** to continue cycling; add **Shift** to cycle backwards. **Left/Right** moves between windows, **Up/Down** moves between rows, **Enter** chooses, and **Escape** cancels. Release that modifier or **click a card** to activate that window's app and bring the specific window forward. The grid includes minimized windows and scrolls to keep the selection visible. While Vibe Mouse is enabled, **Command+Tab** uses these previews in place of the native macOS app switcher.
 
 ### Window keys
 
@@ -126,6 +127,12 @@ Use any of the window modifier combinations above, then:
 **Typing option:** turn off **Settings → Behavior → Use Ctrl+Arrow for windows** to use Ctrl+Left/Right for word movement and Ctrl+Shift+Left/Right for word selection. Ctrl+Up/Down moves to document start/end (Shift selects). Ctrl+Option+Arrow and Command+Arrow continue to control windows. The existing Ctrl+Arrow window binding remains on by default.
 
 **Settings:** the master switch controls all remaps. Copy & Search and Caps Lock capture have separate switches; turning off Copy & Search leaves ordinary Ctrl-to-Command translation active. These are global Mac Command mappings, so terminal Ctrl+C/Ctrl+Z behavior is also affected while enabled.
+
+## Spelling Shortcut
+
+With the text cursor inside or immediately after a misspelled word, **tap and release Alt/Option or Command alone** to open the app's native correction menu. Use arrow keys and Enter, or click a suggestion. If the editor doesn't expose the text cursor or the system dictionary finds no typo there, **point the mouse at the underlined word** and tap again. This fallback opens the native context menu only over a text field in the active app; the editor supplies the spelling suggestions. Password fields are excluded. Modifier chords and holds longer than half a second do nothing. Disable this in **Settings → Behavior → Tap Alt or Command for spelling**.
+
+If a tap does nothing, the latest spelling status appears in Vibe Mouse's menu/settings. The macOS log category `Spelling` records the outcome without recording field contents. Another app's dictation shortcut on Alt or Command can conflict; assign that app a different dictation hotkey.
 
 ## Build and Run from Source
 

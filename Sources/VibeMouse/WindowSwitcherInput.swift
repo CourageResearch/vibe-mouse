@@ -68,8 +68,8 @@ struct WindowSwitcherInput {
               !flags.contains(.maskSecondaryFn) else { return (false, nil) }
         let modifiers = WindowSwitchModifier.allCases.filter { flags.contains($0.flag) }
         guard modifiers.count == 1, let held = modifiers.first else { return (false, nil) }
-        if Int(code) == kVK_Tab, held == .option {
-            modifier = .option
+        if Int(code) == kVK_Tab, held == .command || held == .option {
+            modifier = held
             scope = .allApplications
             suppressedKeys.insert(code)
             return (true, .beginAllWindows(backwards: flags.contains(.maskShift)))
