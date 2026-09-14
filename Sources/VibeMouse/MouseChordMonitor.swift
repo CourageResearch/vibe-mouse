@@ -60,6 +60,8 @@ final class MouseChordMonitor {
     var onPrimaryClickDown: (@MainActor @Sendable () -> Void)?
     var onWindowArrowShortcut: (@MainActor @Sendable (_ shortcut: WindowArrowShortcut) -> Void)?
     var onWindowSwitchAction: (@MainActor @Sendable (WindowSwitchAction) -> Void)?
+    var onSpellCheck: (@MainActor @Sendable () -> Void)?
+    private var spellCheckInput = SpellCheckInput()
     var windowSwitcherPointerTarget: ((CGPoint) -> WindowSwitcherPointerTarget?)?
     private var windowSwitcherInput = WindowSwitcherInput()
     private var suppressedWindowSwitcherMouseButtons: Set<Int64> = []
@@ -72,6 +74,9 @@ final class MouseChordMonitor {
     var postEvent: (CGEvent) -> Void = { $0.post(tap: .cghidEventTap) }
     var isKeyPhysicallyDown: (CGKeyCode) -> Bool = {
         CGEventSource.keyState(.hidSystemState, key: $0)
+    }
+    var isMouseButtonPhysicallyDown: (CGMouseButton) -> Bool = {
+        CGEventSource.buttonState(.hidSystemState, button: $0)
     }
     var interceptedSideMouseButtons: Set<Int64> = []
     var reverseScrollingEnabled = false
@@ -246,6 +251,17 @@ final class MouseChordMonitor {
     func handleEvent(type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
         if event.getIntegerValueField(.eventSourceUserData) == syntheticEventUserData {
             return Unmanaged.passUnretained(event)
+        }
+
+        if type == .flagsChanged {
+            spellCheckInput.reconcileHeldInputs(
+                isKeyDown: { self.isKeyPhysicallyDown(CGKeyCode($0)) },
+                isButtonDown: { self.isMouseButtonPhysicallyDown(CGMouseButton(rawValue: UInt32($0))!) })
+        }
+        if spellCheckInput.handle(type: type, code: event.getIntegerValueField(.keyboardEventKeycode),
+                                  flags: event.flags, time: now(), enabled: onSpellCheck != nil) {
+            let callback = onSpellCheck
+            DispatchQueue.main.async { callback?() }
         }
 
         if type.rawValue == nxSystemDefinedEventTypeRawValue {
@@ -1618,6 +1634,7 @@ final class MouseChordMonitor {
     }
 
     private func resetState() {
+        spellCheckInput.reset()
         dispatchWindowSwitchAction(.cancel)
         windowSwitcherInput.reset()
         suppressedWindowSwitcherMouseButtons.removeAll()

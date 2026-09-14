@@ -5,6 +5,40 @@ import Carbon.HIToolbox
 
 @MainActor
 final class KeyboardTests: XCTestCase {
+    func testSpellingTapRecoversAfterAnotherListenerDropsAKeyUp() async {
+        let monitor = makeMonitor()
+        var spelling = 0
+        monitor.onSpellCheck = { spelling += 1 }
+        _ = monitor.handleEvent(type: .keyDown, event: key(kVK_ANSI_C))
+        // No C-up is delivered, but the hardware state says no keys are held.
+        modifier(kVK_Option, flags: .maskAlternate, monitor: monitor)
+        modifier(kVK_Option, flags: [], monitor: monitor)
+        await withCheckedContinuation { continuation in DispatchQueue.main.async { continuation.resume() } }
+        XCTAssertEqual(spelling, 1)
+    }
+
+    func testSpellingTapPassesModifiersThroughAndDoesNotFireAfterCommandChords() async {
+        let monitor = makeMonitor()
+        var spelling = 0
+        monitor.onSpellCheck = { spelling += 1 }
+        monitor.onWindowSwitchAction = { _ in }
+        monitor.postEvent = { _ in XCTFail("Spelling input should not synthesize keys") }
+        for (code, flag) in [(kVK_Command, CGEventFlags.maskCommand), (kVK_Option, .maskAlternate)] {
+            modifier(code, flags: flag, monitor: monitor)
+            modifier(code, flags: [], monitor: monitor)
+        }
+        await withCheckedContinuation { continuation in DispatchQueue.main.async { continuation.resume() } }
+        XCTAssertEqual(spelling, 2)
+        for shortcut in [kVK_Tab, kVK_ANSI_C, kVK_ANSI_S, kVK_ANSI_Grave] {
+            modifier(kVK_Command, flags: .maskCommand, monitor: monitor)
+            _ = monitor.handleEvent(type: .keyDown, event: key(shortcut, flags: .maskCommand))
+            modifier(kVK_Command, flags: [], monitor: monitor)
+            _ = monitor.handleEvent(type: .keyUp, event: key(shortcut, down: false))
+        }
+        await withCheckedContinuation { continuation in DispatchQueue.main.async { continuation.resume() } }
+        XCTAssertEqual(spelling, 2)
+    }
+
     func makeMonitor(physicallyHeld: Set<CGKeyCode> = []) -> MouseChordMonitor {
         let monitor = MouseChordMonitor()
         monitor.isKeyPhysicallyDown = { physicallyHeld.contains($0) }
@@ -94,6 +128,32 @@ final class KeyboardTests: XCTestCase {
         XCTAssertNil(monitor.handleEvent(type: .keyUp, event: key(kVK_Tab, down: false)))
         await withCheckedContinuation { continuation in DispatchQueue.main.async { continuation.resume() } }
         XCTAssertEqual(actions, [.beginAllWindows(backwards: true), .step(backwards: false), .moveRow(backwards: false), .finish])
+    }
+
+    func testCommandTabUsesPreviewAndWaitsUntilBothCommandKeysAreReleased() async {
+        for commandKey in [kVK_Command, kVK_RightCommand] {
+            let monitor = makeMonitor()
+            var actions: [WindowSwitchAction] = []
+            monitor.onWindowSwitchAction = { actions.append($0) }
+            monitor.postEvent = { _ in XCTFail("Command+Tab emitted native app-switcher keys") }
+            monitor.onWindowArrowShortcut = { _ in XCTFail("Preview navigation tiled a window") }
+            XCTAssertNil(monitor.handleEvent(type: .keyDown, event: key(kVK_Tab, flags: .maskCommand)))
+            XCTAssertNil(monitor.handleEvent(type: .keyUp, event: key(kVK_Tab, down: false, flags: .maskCommand)))
+            XCTAssertNil(monitor.handleEvent(type: .keyDown, event: key(kVK_Tab, flags: [.maskCommand, .maskShift])))
+            XCTAssertNil(monitor.handleEvent(type: .keyDown, event: key(kVK_DownArrow, flags: .maskCommand)))
+            XCTAssertNil(monitor.handleEvent(type: .keyUp, event: key(kVK_DownArrow, down: false)))
+            // Releasing one Command key still leaves the other held.
+            modifier(commandKey, flags: .maskCommand, monitor: monitor)
+            await withCheckedContinuation { continuation in DispatchQueue.main.async { continuation.resume() } }
+            XCTAssertEqual(actions, [.beginAllWindows(backwards: false), .step(backwards: true), .moveRow(backwards: false)])
+            modifier(commandKey, flags: .maskShift, monitor: monitor)
+            XCTAssertNil(monitor.handleEvent(type: .keyUp, event: key(kVK_Tab, down: false)))
+            await withCheckedContinuation { continuation in DispatchQueue.main.async { continuation.resume() } }
+            XCTAssertEqual(actions.last, .finish)
+            let copy = key(kVK_ANSI_C, flags: .maskCommand)
+            XCTAssertNotNil(monitor.handleEvent(type: .keyDown, event: copy))
+            XCTAssertEqual(copy.flags, .maskCommand)
+        }
     }
 
     func testAltTabKeepsWindowGridWhenShiftIsAdded() async {
@@ -418,11 +478,23 @@ final class KeyboardTests: XCTestCase {
     func testCtrlTabAndOtherCommandShortcutsPassThrough() {
         let monitor = makeMonitor()
         monitor.onWindowArrowShortcut = { _ in }
+        monitor.onWindowSwitchAction = { _ in XCTFail("Unrelated shortcut opened window previews") }
         for event in [key(kVK_Tab, flags: [.maskControl]), key(kVK_Tab, flags: [.maskControl, .maskShift]),
-                      key(kVK_Tab, flags: [.maskCommand]), key(kVK_ANSI_C, flags: [.maskCommand])] {
+                      key(kVK_ANSI_C, flags: [.maskCommand]), key(kVK_ANSI_W, flags: [.maskCommand])] {
             let oldFlags = event.flags
             XCTAssertNotNil(monitor.handleEvent(type: .keyDown, event: event))
             XCTAssertEqual(event.flags, oldFlags)
+        }
+    }
+
+    func testCommandTabPassesThroughWhenPreviewHandlerIsDisabled() {
+        let monitor = makeMonitor()
+        for flags: CGEventFlags in [.maskCommand, [.maskCommand, .maskShift]] {
+            for down in [true, false] {
+                let event = key(kVK_Tab, down: down, flags: flags)
+                XCTAssertNotNil(monitor.handleEvent(type: event.type, event: event))
+                XCTAssertEqual(event.flags, flags)
+            }
         }
     }
 

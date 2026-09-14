@@ -6,40 +6,45 @@ import SwiftUI
 @testable import VibeMouse
 
 final class WindowSwitcherInputTests: XCTestCase {
-    func testAltTabStartsAllWindowsAndShiftReversesWhileCycling() {
-        var input = WindowSwitcherInput()
-        let started = input.keyDown(Int64(kVK_Tab), flags: .maskAlternate, isRepeat: false, enabled: true)
-        XCTAssertTrue(started.handled)
-        XCTAssertEqual(started.action, .beginAllWindows(backwards: false))
-        XCTAssertTrue(input.keyUp(Int64(kVK_Tab)))
-        XCTAssertNil(input.flagsChanged(.maskAlternate))
-        for flags: CGEventFlags in [[.maskAlternate, .maskShift], .maskAlternate] {
-            XCTAssertEqual(input.keyDown(Int64(kVK_Tab), flags: flags, isRepeat: false,
-                enabled: true).action, .step(backwards: flags.contains(.maskShift)))
+    func testCommandAndAltTabStartAllWindowsAndShiftReversesWhileCycling() {
+        for held in [WindowSwitchModifier.command, .option] {
+            var input = WindowSwitcherInput()
+            let started = input.keyDown(Int64(kVK_Tab), flags: held.flag, isRepeat: false, enabled: true)
+            XCTAssertTrue(started.handled)
+            XCTAssertEqual(started.action, .beginAllWindows(backwards: false))
+            XCTAssertTrue(input.keyUp(Int64(kVK_Tab)))
+            XCTAssertNil(input.flagsChanged(held.flag))
+            for flags: CGEventFlags in [[held.flag, .maskShift], held.flag] {
+                XCTAssertEqual(input.keyDown(Int64(kVK_Tab), flags: flags, isRepeat: false,
+                    enabled: true).action, .step(backwards: flags.contains(.maskShift)))
+            }
+            XCTAssertEqual(input.keyDown(Int64(kVK_LeftArrow), flags: [held.flag, .maskShift],
+                isRepeat: false, enabled: true).action, .step(backwards: true))
+            XCTAssertEqual(input.keyDown(Int64(kVK_UpArrow), flags: held.flag,
+                isRepeat: false, enabled: true).action, .moveRow(backwards: true))
+            XCTAssertEqual(input.keyDown(Int64(kVK_DownArrow), flags: held.flag,
+                isRepeat: false, enabled: true).action, .moveRow(backwards: false))
+            XCTAssertEqual(input.flagsChanged(.maskShift), .finish)
+            XCTAssertTrue(input.keyDown(Int64(kVK_Tab), flags: [], isRepeat: true, enabled: true).handled)
+            XCTAssertTrue(input.keyUp(Int64(kVK_Tab)))
+            XCTAssertFalse(input.keyDown(Int64(kVK_Tab), flags: [], isRepeat: false, enabled: true).handled)
         }
-        XCTAssertEqual(input.keyDown(Int64(kVK_LeftArrow), flags: [.maskAlternate, .maskShift],
-            isRepeat: false, enabled: true).action, .step(backwards: true))
-        XCTAssertEqual(input.keyDown(Int64(kVK_UpArrow), flags: .maskAlternate,
-            isRepeat: false, enabled: true).action, .moveRow(backwards: true))
-        XCTAssertEqual(input.keyDown(Int64(kVK_DownArrow), flags: .maskAlternate,
-            isRepeat: false, enabled: true).action, .moveRow(backwards: false))
-        XCTAssertEqual(input.flagsChanged(.maskShift), .finish)
-        XCTAssertTrue(input.keyDown(Int64(kVK_Tab), flags: [], isRepeat: true, enabled: true).handled)
-        XCTAssertTrue(input.keyUp(Int64(kVK_Tab)))
-        XCTAssertFalse(input.keyDown(Int64(kVK_Tab), flags: [], isRepeat: false, enabled: true).handled)
     }
 
-    func testAllWindowsRequiresAltWithoutOtherModifiers() {
-        for flags: CGEventFlags in [[], .maskShift, .maskCommand, .maskControl,
-            [.maskControl, .maskShift], [.maskCommand, .maskShift],
+    func testAllWindowsRequiresCommandOrAltWithoutOtherModifiers() {
+        for flags: CGEventFlags in [[], .maskShift, .maskControl,
+            [.maskControl, .maskShift], [.maskCommand, .maskControl],
+            [.maskCommand, .maskSecondaryFn],
             [.maskAlternate, .maskShift, .maskCommand], [.maskAlternate, .maskShift, .maskControl],
             [.maskAlternate, .maskShift, .maskSecondaryFn]] {
             var input = WindowSwitcherInput()
             XCTAssertFalse(input.keyDown(Int64(kVK_Tab), flags: flags, isRepeat: false, enabled: true).handled)
         }
-        var input = WindowSwitcherInput()
-        XCTAssertFalse(input.keyDown(Int64(kVK_Tab), flags: .maskAlternate,
-            isRepeat: false, enabled: false).handled)
+        for flag in [CGEventFlags.maskCommand, .maskAlternate] {
+            var input = WindowSwitcherInput()
+            XCTAssertFalse(input.keyDown(Int64(kVK_Tab), flags: flag,
+                isRepeat: false, enabled: false).handled)
+        }
     }
 
     func testVerticalArrowsOnlyNavigateTheAllWindowsGrid() {
